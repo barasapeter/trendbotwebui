@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RapidExit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F3F5F9;
+    --surface:#FFFFFF;
+    --border:#E7EAF0;
+    --text:#1C2130;
+    --text-muted:#727A8B;
+    --primary:#4F46E5;
+    --primary-dark:#4338CA;
+    --primary-tint:#EEEDFD;
+    --success:#16A34A;
+    --success-tint:#E9F9EF;
+    --danger:#DC2626;
+    --danger-tint:#FDECEC;
+    --warning:#D97706;
+    --warning-tint:#FEF3E2;
+    --radius-lg:22px;
+    --radius-md:16px;
+    --radius-sm:10px;
+    --shadow-sm:0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+    --shadow-md:0 4px 14px rgba(16,24,40,.06), 0 2px 4px rgba(16,24,40,.04);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Plus Jakarta Sans', -apple-system, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:760px;
+    margin:0 auto;
+    padding:28px 20px 60px;
+  }
+
+  /* ---------- header ---------- */
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:24px;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-weight:800;
+    font-size:20px;
+    letter-spacing:-.01em;
+  }
+  .brand .mark{
+    width:32px; height:32px;
+    border-radius:10px;
+    background:linear-gradient(135deg, var(--primary), #7C74F0);
+    display:flex; align-items:center; justify-content:center;
+    color:#fff;
+    font-size:16px;
+  }
+  .status{
+    display:flex; align-items:center; gap:7px;
+    font-size:12.5px;
+    color:var(--text-muted);
+    font-weight:500;
+  }
+  .status .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:#C9CDD6;
+    transition:background .2s ease;
+  }
+  .status.on .dot{ background:var(--success); box-shadow:0 0 0 3px var(--success-tint); }
+  .status.err .dot{ background:var(--danger); box-shadow:0 0 0 3px var(--danger-tint); }
+
+  /* ---------- hero cards ---------- */
+  .hero-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+    margin-bottom:18px;
+  }
+  .hero-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    padding:22px 22px 20px;
+    box-shadow:var(--shadow-sm);
+  }
+  .hero-label{
+    display:block;
+    font-size:13px;
+    color:var(--text-muted);
+    font-weight:600;
+    margin-bottom:10px;
+  }
+  .hero-value{
+    display:block;
+    font-size:34px;
+    font-weight:800;
+    letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;
+    line-height:1.1;
+  }
+  .hero-value.pos{ color:var(--success); }
+  .hero-value.neg{ color:var(--danger); }
+  .hero-sub{
+    display:block;
+    margin-top:6px;
+    font-size:13px;
+    color:var(--text-muted);
+    font-weight:500;
+  }
+
+  /* ---------- controls ---------- */
+  .controls{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-sm);
+    padding:18px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    margin-bottom:26px;
+    flex-wrap:wrap;
+  }
+  .segmented{
+    display:inline-flex;
+    background:var(--bg);
+    border-radius:999px;
+    padding:4px;
+    gap:2px;
+  }
+  .seg-btn{
+    border:none;
+    background:transparent;
+    padding:9px 18px;
+    border-radius:999px;
+    font-family:inherit;
+    font-weight:600;
+    font-size:13.5px;
+    color:var(--text-muted);
+    cursor:pointer;
+    transition:all .15s ease;
+  }
+  .seg-btn.active{
+    background:var(--surface);
+    color:var(--text);
+    box-shadow:var(--shadow-sm);
+  }
+  .seg-btn:disabled{ cursor:not-allowed; opacity:.6; }
+
+  .toggle-btn{
+    border:none;
+    font-family:inherit;
+    font-weight:700;
+    font-size:15px;
+    padding:13px 26px;
+    border-radius:999px;
+    cursor:pointer;
+    color:#fff;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    transition:transform .1s ease, filter .15s ease, background .15s ease;
+    box-shadow:var(--shadow-md);
+  }
+  .toggle-btn:active{ transform:scale(.97); }
+  .toggle-btn.start{ background:var(--primary); }
+  .toggle-btn.start:hover{ background:var(--primary-dark); }
+  .toggle-btn.stop{ background:var(--danger); }
+  .toggle-btn.stop:hover{ filter:brightness(1.05); }
+  .toggle-btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+
+  /* ---------- feed ---------- */
+  .feed-title{
+    font-size:14px;
+    font-weight:700;
+    color:var(--text-muted);
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    margin:0 0 12px 4px;
+  }
+  .feed-list{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .empty-state{
+    background:var(--surface);
+    border:1.5px dashed var(--border);
+    border-radius:var(--radius-lg);
+    padding:38px 20px;
+    text-align:center;
+    color:var(--text-muted);
+    font-size:14px;
+    font-weight:500;
+  }
+
+  .trade-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-md);
+    padding:16px 18px;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    box-shadow:var(--shadow-sm);
+    opacity:0;
+    transform:translateY(-14px);
+    transition:opacity .35s ease, transform .35s ease;
+  }
+  .trade-card.show{ opacity:1; transform:translateY(0); }
+
+  .trade-icon{
+    width:42px; height:42px;
+    border-radius:12px;
+    flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px;
+  }
+  .trade-icon.win{ background:var(--success-tint); color:var(--success); }
+  .trade-icon.loss{ background:var(--danger-tint); color:var(--danger); }
+
+  .trade-main{ flex:1; min-width:0; }
+  .trade-top{
+    display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  }
+  .trade-dir{ font-weight:700; font-size:14.5px; }
+  .trade-meta{ font-size:12.5px; color:var(--text-muted); margin-top:2px; }
+  .trade-profit{
+    font-weight:800;
+    font-size:17px;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+  .trade-profit.pos{ color:var(--success); }
+  .trade-profit.neg{ color:var(--danger); }
+  .trade-balance{ font-size:12px; color:var(--text-muted); margin-top:2px; white-space:nowrap; }
+
+  /* system / info cards */
+  .note-card{
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:var(--radius-md);
+    padding:13px 16px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-size:13.5px;
+    color:var(--text-muted);
+    font-weight:500;
+    opacity:0;
+    transform:translateY(-14px);
+    transition:opacity .35s ease, transform .35s ease;
+  }
+  .note-card.show{ opacity:1; transform:translateY(0); }
+  .note-card.error{ background:var(--danger-tint); color:var(--danger); border-color:transparent; }
+  .note-card.success{ background:var(--success-tint); color:var(--success); border-color:transparent; }
+  .note-icon{ font-size:15px; flex-shrink:0; }
+
+  /* ---------- toast ---------- */
+  .toast{
+    position:fixed;
+    left:50%;
+    bottom:22px;
+    transform:translate(-50%, 20px);
+    background:var(--text);
+    color:#fff;
+    padding:12px 20px;
+    border-radius:999px;
+    font-size:13.5px;
+    font-weight:600;
+    box-shadow:var(--shadow-md);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .25s ease, transform .25s ease;
+    max-width:90vw;
+    text-align:center;
+  }
+  .toast.show{ opacity:1; transform:translate(-50%, 0); }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:560px){
+    .hero-grid{ grid-template-columns:1fr; }
+    .hero-value{ font-size:28px; }
+    .controls{ flex-direction:column; align-items:stretch; }
+    .toggle-btn{ justify-content:center; }
+    .trade-balance{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="app">
+    <header>
+      <div class="brand"><span class="mark">R</span> RapidExit</div>
+      <div class="status" id="status"><span class="dot"></span><span id="statusLabel">Connecting</span></div>
+    </header>
+
+    <section class="hero-grid">
+      <div class="hero-card">
+        <span class="hero-label">Balance</span>
+        <span class="hero-value" id="balanceValue">—</span>
+        <span class="hero-sub" id="balanceSub">&nbsp;</span>
+      </div>
+      <div class="hero-card">
+        <span class="hero-label">Net P/L · this session</span>
+        <span class="hero-value" id="pnlValue">—</span>
+        <span class="hero-sub" id="pnlSub">No active session</span>
+      </div>
+    </section>
+
+    <section class="controls">
+      <div class="segmented" id="modeSegment">
+        <button class="seg-btn active" data-mode="demo">Demo</button>
+        <button class="seg-btn" data-mode="real">Real</button>
+      </div>
+      <button id="toggleBtn" class="toggle-btn start">
+        <span id="toggleIcon">▶</span><span id="toggleLabel">Start Trading</span>
+      </button>
+    </section>
+
+    <section>
+      <h2 class="feed-title">Live Trades</h2>
+      <div id="feedList" class="feed-list">
+        <div class="empty-state" id="emptyState">Your trades will appear here once you start.</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+
+  // Fixed trade parameters — mirrors the constants from the original bot.
+  // Only "mode" is user-selectable; everything else is intentionally not
+  // exposed so the person just picks demo/real and hits Start.
+  const FIXED_CONFIG = {
+    strategy_type: "MARTINGALE",
+    direction_mode: "TREND_FOLLOW",
+    symbol: "R_100",
+    duration: 5,
+    duration_unit: "t",
+    currency: "USD",
+    initial_stake: 1.3,
+    max_stake: 5.0,
+    profit_threshold: 1.0,
+    loss_threshold: 6.0,
+    stake_multiplier: 1.1,
+    stake_increment: 1.0,
+    inter_session_pause: 5,
+    max_sessions: 1,
+  };
+
+  const statusEl = $('status');
+  const statusLabel = $('statusLabel');
+  const balanceValue = $('balanceValue');
+  const balanceSub = $('balanceSub');
+  const pnlValue = $('pnlValue');
+  const pnlSub = $('pnlSub');
+  const modeSegment = $('modeSegment');
+  const toggleBtn = $('toggleBtn');
+  const toggleIcon = $('toggleIcon');
+  const toggleLabel = $('toggleLabel');
+  const feedList = $('feedList');
+  const emptyState = $('emptyState');
+  const toast = $('toast');
+
+  let ws = null;
+  let mode = 'demo';
+  let running = false;
+  let reconnectTimer = null;
+  let currency = 'USD';
+
+  function wsUrl(){
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.host}/ws`;
+  }
+
+  function fmt(n){
+    if (n === undefined || n === null || isNaN(n)) return '—';
+    return Number(n).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+  }
+
+  function setStatus(state){ // 'connecting' | 'on' | 'err'
+    statusEl.className = 'status' + (state === 'on' ? ' on' : state === 'err' ? ' err' : '');
+    statusLabel.textContent = state === 'on' ? 'Connected' : state === 'err' ? 'Reconnecting…' : 'Connecting';
+  }
+
+  function showToast(msg){
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 4200);
+  }
+
+  function setRunning(isRunning){
+    running = isRunning;
+    toggleBtn.className = 'toggle-btn ' + (running ? 'stop' : 'start');
+    toggleIcon.textContent = running ? '■' : '▶';
+    toggleLabel.textContent = running ? 'Stop Trading' : 'Start Trading';
+    modeSegment.querySelectorAll('.seg-btn').forEach(b => b.disabled = running);
+    toggleBtn.disabled = !ws || ws.readyState !== WebSocket.OPEN;
+  }
+
+  function addCard(el){
+    if (emptyState) emptyState.remove();
+    feedList.prepend(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+    // cap history so the page doesn't grow forever
+    const cards = feedList.children;
+    while (cards.length > 40) feedList.removeChild(cards[cards.length - 1]);
+  }
+
+  function tradeCard(data){
+    const win = data.outcome === 'WIN';
+    const dirLabel = (data.direction === 'PUT') ? 'Falling' : 'Rising';
+    const dirIcon = (data.direction === 'PUT') ? '↓' : '↑';
+    const time = new Date().toLocaleTimeString([], { hour12:false });
+
+    const card = document.createElement('div');
+    card.className = 'trade-card';
+    card.innerHTML = `
+      <div class="trade-icon ${win ? 'win' : 'loss'}">${win ? '✓' : '✕'}</div>
+      <div class="trade-main">
+        <div class="trade-top">
+          <span class="trade-dir">${dirIcon} ${dirLabel}</span>
+          <span class="trade-profit ${data.contract_profit >= 0 ? 'pos' : 'neg'}">
+            ${data.contract_profit >= 0 ? '+' : ''}${fmt(data.contract_profit)} ${data.currency || currency}
+          </span>
+        </div>
+        <div class="trade-meta">Trade #${data.trade_num} · ${time} · stake ${fmt(data.stake)}</div>
+      </div>
+      <div class="trade-balance">Bal ${fmt(data.balance_after)}</div>
+    `;
+    addCard(card);
+  }
+
+  function noteCard(text, variant, icon){
+    const card = document.createElement('div');
+    card.className = 'note-card' + (variant ? ' ' + variant : '');
+    card.innerHTML = `<span class="note-icon">${icon || 'ⓘ'}</span><span>${text}</span>`;
+    addCard(card);
+  }
+
+  function handleMessage(msg){
+    const { type, data } = msg;
+    switch(type){
+      case 'session_start':
+        currency = data.currency || currency;
+        balanceValue.textContent = fmt(data.starting_balance);
+        pnlValue.textContent = fmt(0);
+        pnlValue.className = 'hero-value';
+        pnlSub.textContent = `Target +${fmt(data.profit_threshold)} · Stop −${fmt(data.loss_threshold)}`;
+        noteCard('Session started', null, '●');
+        break;
+      case 'trade_result':
+        balanceValue.textContent = fmt(data.balance_after);
+        pnlValue.textContent = (data.session_net_pnl >= 0 ? '+' : '') + fmt(data.session_net_pnl);
+        pnlValue.className = 'hero-value ' + (data.session_net_pnl >= 0 ? 'pos' : 'neg');
+        currency = data.currency || currency;
+        tradeCard(data);
+        break;
+      case 'session_target_reached':
+        noteCard(`Target reached — session closed ${data.net_pnl >= 0 ? '+' : ''}${fmt(data.net_pnl)} ${currency}`, 'success', '🎯');
+        break;
+      case 'session_stop_loss_breached':
+        noteCard(`Stop-loss reached — session closed ${fmt(data.net_pnl)} ${currency}`, 'error', '⛔');
+        break;
+      case 'session_no_budget_remaining':
+        noteCard('Session ended — no budget remaining', 'error', '⛔');
+        break;
+      case 'order_rejected':
+        noteCard(`Order rejected: ${data.message}`, 'error', '⚠');
+        showToast('Order rejected — retrying shortly');
+        break;
+      case 'stopped_by_client':
+        noteCard('Stopping after the current trade…', null, '■');
+        break;
+      case 'shutdown':
+        setRunning(false);
+        pnlSub.textContent = 'No active session';
+        break;
+      case 'error':
+        showToast(typeof data.message === 'string' ? data.message : 'Something went wrong');
+        break;
+      default:
+        break; // ignore lower-level events (guardrails, pauses, cumulative ticks)
+    }
+  }
+
+  function connect(){
+    setStatus('connecting');
+    ws = new WebSocket(wsUrl());
+
+    ws.addEventListener('open', () => {
+      setStatus('on');
+      toggleBtn.disabled = false;
+    });
+    ws.addEventListener('close', () => {
+      setStatus('err');
+      toggleBtn.disabled = true;
+      setRunning(false);
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 2500);
+    });
+    ws.addEventListener('error', () => { /* close handler covers reconnect */ });
+    ws.addEventListener('message', (evt) => {
+      try { handleMessage(JSON.parse(evt.data)); }
+      catch(e) { console.error('Bad message', evt.data); }
+    });
+  }
+
+  modeSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn || btn.disabled) return;
+    mode = btn.dataset.mode;
+    modeSegment.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+  });
+
+  toggleBtn.addEventListener('click', () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!running){
+      ws.send(JSON.stringify({ type:'start', config: { mode, ...FIXED_CONFIG } }));
+      setRunning(true);
+    } else {
+      ws.send(JSON.stringify({ type:'stop' }));
+      toggleBtn.disabled = true;
+    }
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>
