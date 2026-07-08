@@ -128,6 +128,7 @@ async def run_session(client, session_num, ws: WebSocket):
         "widget": "session_initializer",
         "title": f"SESSION {session_num} OF {MAX_SESSIONS} INITIALIZING",
         "balance": await get_account_balance(client),
+        "pl": round(total_profit_loss, 2),
         "metadata": {
             "risk_engine": STRATEGY_TYPE,
             "selection_mode": DIRECTION_MODE,
@@ -144,6 +145,7 @@ async def run_session(client, session_num, ws: WebSocket):
                 "widget": "snackbar",
                 "title": "TARGET PROFIT REACHED!",
                 "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
                 "metadata": {
                     "session": session_num,
                     "message": f"Session {session_num} Stopping.",
@@ -157,6 +159,7 @@ async def run_session(client, session_num, ws: WebSocket):
                 "widget": "snackbar",
                 "title": "STOP LOSS LIMIT BREACHED!",
                 "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
                 "metadata": {
                     "session": session_num,
                     "message": f"Session {session_num}.",
@@ -191,6 +194,7 @@ async def run_session(client, session_num, ws: WebSocket):
                 "widget": "detailed_snackbar",
                 "title": "STOP-LOSS GUARDRAIL TRIGGERED",
                 "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
                 "metadata": {
                     "stake": f"{current_stake:.2f}",
                     "remaining_loss_budget": f"{remaining_budget:.2f}",
@@ -207,6 +211,7 @@ async def run_session(client, session_num, ws: WebSocket):
                     "widget": "snackbar",
                     "title": "NO LOSS BUDGET REMAINS",
                     "balance": await get_account_balance(client),
+                    "pl": round(total_profit_loss, 2),
                     "metadata": {
                         "message": "No loss budget remains - ending session now.",
                         "status": "warning",
@@ -219,6 +224,7 @@ async def run_session(client, session_num, ws: WebSocket):
                 "widget": "detailed_snackbar",
                 "title": "STAKE CLAMPED",
                 "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
                 "metadata": {
                     "stake": current_stake,
                     "message": f"Clamping stake to remaining budget: {current_stake:.2f}",
@@ -232,6 +238,7 @@ async def run_session(client, session_num, ws: WebSocket):
             "widget": "session_summary",
             "title": f"SESSION {session_num} OF {MAX_SESSIONS} T{trade_count}",
             "balance": await get_account_balance(client),
+            "pl": round(total_profit_loss, 2),
             "metadata": {
                 "balance_before": balance_before_trade,
                 "currency": CURRENCY,
@@ -264,6 +271,7 @@ async def run_session(client, session_num, ws: WebSocket):
                 "widget": "snackbar",
                 "title": "ORDER REJECTED BY SERVER",
                 "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
                 "metadata": {
                     "message": buy_response["error"]["message"],
                     "status": "error",
@@ -276,6 +284,7 @@ async def run_session(client, session_num, ws: WebSocket):
                     "widget": "snackbar",
                     "title": "RETRYING EXECUTION",
                     "balance": await get_account_balance(client),
+                    "pl": round(total_profit_loss, 2),
                     "metadata": {
                         "message": "Retrying loop execution sequence in 5 seconds...",
                         "retry_in_seconds": 5,
@@ -321,6 +330,7 @@ async def run_session(client, session_num, ws: WebSocket):
             "widget": "trade_result",
             "title": f"TRADE #{trade_count} RESULT",
             "balance": await get_account_balance(client),
+            "pl": round(total_profit_loss, 2),
             "metadata": {
                 "outcome": result_str,
                 "profit": contract_profit,
@@ -356,6 +366,7 @@ async def run_session(client, session_num, ws: WebSocket):
                         "widget": "risk_alert",
                         "title": "MAX STAKE GUARDRAIL BREACHED",
                         "balance": await get_account_balance(client),
+                        "pl": round(total_profit_loss, 2),
                         "metadata": {
                             "stake": current_stake,
                             "max_stake": MAX_STAKE,
@@ -378,6 +389,7 @@ async def run_session(client, session_num, ws: WebSocket):
         "widget": "session_summary",
         "title": f"SESSION #{session_num} COMPLETED SUMMARY REPORT",
         "balance": await get_account_balance(client),
+        "pl": round(total_profit_loss, 2),
         "metadata": {
             "initial_balance": initial_session_balance,
             "final_balance": final_session_balance,
@@ -442,10 +454,13 @@ async def receiver(ws: WebSocket):
 
                         running_balance = await get_account_balance(client)
 
+                        print("FINAL PLN::", round(grand_total_pnl, 2))
+
                         cumulative_status_report = {
                             "widget": "cumulative_status",
                             "title": f"SESSIONS CUMULATIVE STATUS (::S{session_num})",
                             "balance": running_balance,
+                            "pl": round(grand_total_pnl, 2),
                             "metadata": {
                                 "starting_balance": starting_balance,
                                 "current_balance": running_balance,
@@ -504,6 +519,7 @@ async def receiver(ws: WebSocket):
                             "title": "BOT SHUTDOWN FINAL SUMMARY",
                             "balance": final_balance,
                             "end_of_stream": True,
+                            "pl": round(grand_total_pnl, 2),
                             "metadata": {
                                 "sessions_run": session_num,
                                 "starting_balance": starting_balance,

@@ -376,7 +376,7 @@ const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
 // Initialize button in connecting state
 updateRunButton(RunButtonState.CONNECTING);
-
+let initialBal = 0
 document.addEventListener('DOMContentLoaded', function() {
     // Check if WebSocket is already open when page loads
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -433,8 +433,25 @@ ws.onmessage = (event) => {
   
   
 
-  if (data.trade_stream && data.trade_stream.balance) {
+  if (data.trade_stream && data.trade_stream.balance || data.trade_stream && data.trade_stream.pl) {
     balanceEl.textContent = data.trade_stream.balance;
+    plEl.textContent = data.trade_stream.pl || "+0.00";
+    if (data.trade_stream.pl < 0) {
+      plEl.style.color = "red";
+    } else {
+      plEl.style.color = "green";
+    }
+
+    if (initialBal > data.trade_stream.balance) {
+      balanceEl.style.color = "red";
+    } else {
+      balanceEl.style.color = "green";
+    }
+
+    initialBal = data.trade_stream.balance;
+
+
+
   }
 
   // Check if bot is running - this takes priority over all other states
@@ -462,6 +479,7 @@ ws.onmessage = (event) => {
 
 
   if (data.balance !== undefined && data.pl !== undefined) {
+    initialBal = data.balance;
     balanceEl.textContent = data.balance;
     plEl.textContent = data.pl;
     plEl.classList.remove("pl-positive", "pl-negative");
