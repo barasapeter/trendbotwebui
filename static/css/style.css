@@ -325,7 +325,6 @@ body {
   font-size: 14px;
   color: var(--text);
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
 }
 
 .waiting-indicator {
@@ -337,7 +336,6 @@ body {
   font-size: 13px;
   font-weight: 600;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
 }
 
 .waiting-dots {
@@ -375,9 +373,9 @@ body {
   padding: 4px 12px 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  overflow: visible;
+  /* overflow: visible; */
 }
 
 .feed-item {
@@ -442,7 +440,7 @@ body {
 .feed-card {
   margin: 2px 0;
   padding: 14px 16px;
-  border-radius: var(--radius-sm);
+  border-radius: 16px;
   border: 1px solid var(--border);
   background: var(--surface-2);
   overflow: visible;
@@ -477,37 +475,37 @@ body {
 
 /* Card color variants - keeping original theming */
 .feed-card.profit { 
-  border-left: 4px solid var(--profit);
+  border: 1.5px solid var(--profit);
   background: var(--profit-dim);
 }
 .feed-card.profit .card-title { color: var(--profit); }
 
 .feed-card.loss { 
-  border-left: 4px solid var(--loss);
+  border: 1.2px solid var(--loss);
   background: var(--loss-dim);
 }
 .feed-card.loss .card-title { color: var(--loss); }
 
 .feed-card.warn { 
-  border-left: 4px solid var(--warn);
+  border: 1.2px solid var(--warn);
   background: var(--warn-dim);
 }
 .feed-card.warn .card-title { color: var(--warn); }
 
 .feed-card.info { 
-  border-left: 4px solid var(--info);
+  border: 1.2px solid var(--info);
   background: var(--info-dim);
 }
 .feed-card.info .card-title { color: var(--info); }
 
 .feed-card.gold { 
-  border-left: 4px solid var(--gold);
+  border: 1.2px solid var(--gold);
   background: var(--gold-dim);
 }
 .feed-card.gold .card-title { color: var(--gold); }
 
 .feed-card.neutral { 
-  border-left: 4px solid var(--border-strong);
+  border: 1.2px solid var(--border-strong);
   background: var(--surface);
 }
 .feed-card.neutral .card-title { color: var(--text); }

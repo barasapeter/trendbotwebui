@@ -77,7 +77,7 @@ function setWaiting(state) {
     waitingText.textContent = "Connecting…";
   } else if (state === "watching") {
     waitingIndicator.classList.remove("paused");
-    waitingText.textContent = "Thinking...";
+    waitingText.textContent = "";
   } else {
     waitingIndicator.classList.add("paused");
     waitingText.textContent = "Connected";
