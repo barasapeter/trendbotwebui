@@ -111,7 +111,7 @@ async def run_session(client, session_num, ws: WebSocket):
     # Strategy Specific Parameters
     INITIAL_STAKE = 5  # 100 × 0.05
     MAX_STAKE = 50  # 1000 × 0.05
-    PROFIT_THRESHOLD = 5  # 100 × 0.05
+    PROFIT_THRESHOLD = 4.61  # 100 × 0.05
     LOSS_THRESHOLD = 50  # 1000 × 0.05
 
     STAKE_MULTIPLIER = 2  # [Martingale] Multiplier factor on loss
