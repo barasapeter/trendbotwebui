@@ -25,14 +25,15 @@ async def home(request: Request):
 
 
 async def sender(ws: WebSocket):
+    count = 0
     while True:
-        await asyncio.sleep(1.0)
-
+        await asyncio.sleep(4.0)
+        count += 1
         await ws.send_json(
             {
                 "balance": 10234.56,
                 "pl": 18.75,
-                "status": "OK, websocket running",
+                "status": f"OK, websocket running [{count}]",
                 "color": random.choice(
                     ["red", "blue", "green", "brown", "#20bebe", "orange"]
                 ),
@@ -48,7 +49,17 @@ async def receiver(ws: WebSocket):
         action = data.get("action")
 
         if action == "run_bot":
-            await ws.send_json({"status": "Running bot..."})
+            await ws.send_json(
+                {
+                    "balance": 10234.56,
+                    "pl": 18.75,
+                    "status": "COMMAND: Run Bot!",
+                    "color": random.choice(
+                        ["red", "blue", "green", "brown", "#20bebe", "orange"]
+                    ),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
         elif action == "stop_bot":
             print("Stopping bot...")

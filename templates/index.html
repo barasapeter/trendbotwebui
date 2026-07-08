@@ -69,7 +69,7 @@
             p.style.color = data.color;
             p.textContent = data.status;
 
-            output.appendChild(p);
+            output.prepend(p);
         };
 
         ws.onopen = () => {
