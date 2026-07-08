@@ -377,6 +377,22 @@ const ws = new WebSocket(`ws://${window.location.host}/ws`);
 // Initialize button in connecting state
 updateRunButton(RunButtonState.CONNECTING);
 
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if WebSocket is already open when page loads
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: "get_balance"
+        }));
+    } else {
+        // If WebSocket is not open yet, wait for it to open
+        ws.onopen = function() {
+            ws.send(JSON.stringify({
+                action: "get_balance"
+            }));
+        };
+    }
+});
+
 runBtn.onclick = () => {
   if (ws.readyState !== WebSocket.OPEN) {
     // Should not happen as button should be disabled, but guard anyway
@@ -414,7 +430,7 @@ ws.onopen = () => {
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-
+  
   
 
   if (data.trade_stream && data.trade_stream.balance) {

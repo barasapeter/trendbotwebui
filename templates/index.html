@@ -23,11 +23,23 @@
         <section class="readout" aria-label="Account readout">
             <div class="readout-cell">
                 <span class="readout-label">Balance</span>
-                <span class="readout-value" id="balance">{{ balance or "0.00" }}</span>
+                <span class="readout-value" id="balance">
+                    {% if balance is none %}
+                        <em style="font-size: 16px;">Fetching...</em>
+                    {% else %}
+                        {{ balance }}
+                    {% endif %}
+                </span>
             </div>
             <div class="readout-cell">
                 <span class="readout-label">Session P&amp;L</span>
-                <span class="readout-value" id="PL">{{ PL or "0.00" }}</span>
+                <span class="readout-value" id="PL">
+                    {% if PL is none %}
+                        <em style="font-size: 16px;">Fetching...</em>
+                    {% else %}
+                        {{ PL }}
+                    {% endif %}
+                </span>
             </div>
         </section>
 

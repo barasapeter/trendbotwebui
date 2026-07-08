@@ -37,11 +37,10 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # Remove DerivClient usage here - balance will be streamed via WebSocket
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"title": "FastAPI", "balance": "-", "PL": "null"},
+        context={"title": "FastAPI", "balance": None, "PL": None},
     )
 
 
@@ -407,27 +406,27 @@ async def receiver(ws: WebSocket):
 
             action = data.get("action")
 
+            # Only create client if it doesn't exist or was closed
+            if client is None:
+                client = DerivClient(ws_url=get_ws_url(account_type="demo"))
+                await client.connect()
+
+            # Send initial balance via WebSocket
+            initial_balance = await get_account_balance(client)
+            await ws.send_json(
+                {
+                    "balance": initial_balance,
+                    "pl": "+0.00",
+                    "bot": {"running": True},
+                    "is_initial": True,
+                }
+            )
+
             if action == "run_bot":
                 await ws.send_json(
                     {
                         "message": "acknowledgement",
                         "status": "Connecting to Deriv servers...",
-                    }
-                )
-
-                # Only create client if it doesn't exist or was closed
-                if client is None:
-                    client = DerivClient(ws_url=get_ws_url(account_type="demo"))
-                    await client.connect()
-
-                # Send initial balance via WebSocket
-                initial_balance = await get_account_balance(client)
-                await ws.send_json(
-                    {
-                        "balance": initial_balance,
-                        "pl": 0.00,
-                        "bot": {"running": True},
-                        "is_initial": True,
                     }
                 )
 
@@ -556,7 +555,7 @@ async def receiver(ws: WebSocket):
                     await ws.send_json(
                         {
                             "balance": balance,
-                            "pl": 0.00,
+                            "pl": "+0.00",
                             "status": "Balance updated",
                             "is_balance_update": True,
                         }
