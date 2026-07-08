@@ -131,7 +131,7 @@ body {
   font-size: 13px;
   padding: 8px 16px;
   border-radius: 999px;
-  cursor: pointer;
+  cursor: default;
   transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
@@ -215,7 +215,7 @@ body {
   font-size: 13px;
   padding: 9px 18px;
   border-radius: 999px;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
@@ -239,7 +239,7 @@ body {
   letter-spacing: 0.01em;
   padding: 13px 30px;
   border-radius: 999px;
-  cursor: pointer;
+  cursor: default;
   box-shadow: 0 3px 10px rgba(31, 169, 113, 0.28);
   transition: filter 0.15s ease, transform 0.1s ease;
 }

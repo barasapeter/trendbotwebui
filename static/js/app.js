@@ -10,6 +10,68 @@ const plEl = document.getElementById("PL");
 const modeButtons = document.querySelectorAll(".mode-btn");
 const waitingIndicator = document.getElementById("waitingIndicator");
 const waitingText = document.getElementById("waitingText");
+let streamEnded = false;
+
+// ==========================================================================
+// Run Button State Management
+// ==========================================================================
+const RunButtonState = {
+  CONNECTING: 'connecting',
+  READY: 'ready',
+  INITIALIZING: 'initializing',
+  RUNNING: 'running',
+  CLOSED: 'closed'
+};
+
+let currentRunButtonState = RunButtonState.CONNECTING;
+let isBotRunning = false; // Track bot running state independently
+let isInitializing = false; // Track initialization state
+
+function updateRunButton(state, customText = null) {
+  currentRunButtonState = state;
+  
+  switch(state) {
+    case RunButtonState.CONNECTING:
+      runBtn.disabled = true;
+      runBtn.textContent = "Connecting...";
+      break;
+    case RunButtonState.READY:
+      // Only enable if bot is NOT running and NOT initializing
+      if ((!isBotRunning && !isInitializing) || streamEnded) {
+        runBtn.disabled = false;
+        runBtn.textContent = customText || "Run Bot";
+      } else {
+        // If bot is running or initializing, keep it disabled
+        runBtn.disabled = true;
+        if (isBotRunning) {
+          runBtn.textContent = "Bot running...";
+        } else if (isInitializing) {
+          runBtn.textContent = "Initializing...";
+        }
+      }
+      break;
+    case RunButtonState.INITIALIZING:
+      isInitializing = true;
+      runBtn.disabled = true;
+      runBtn.textContent = "Initializing...";
+      break;
+    case RunButtonState.RUNNING:
+      isInitializing = false; // Clear initializing flag when running starts
+      isBotRunning = true;
+      runBtn.disabled = true;
+      runBtn.textContent = "Bot running...";
+      break;
+    case RunButtonState.CLOSED:
+      isInitializing = false;
+      isBotRunning = false;
+      runBtn.disabled = true;
+      runBtn.textContent = "Connection closed";
+      break;
+    default:
+      runBtn.disabled = true;
+      runBtn.textContent = "Connecting...";
+  }
+}
 
 function setWaiting(state) {
   // state: "connecting" | "watching" | "down"
@@ -310,10 +372,16 @@ function pushLogLine(text, color) {
 // ==========================================================================
 const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
-runBtn.disabled = true;
+// Initialize button in connecting state
+updateRunButton(RunButtonState.CONNECTING);
 
 runBtn.onclick = () => {
-  if (ws.readyState !== WebSocket.OPEN) return;
+  if (ws.readyState !== WebSocket.OPEN) {
+    // Should not happen as button should be disabled, but guard anyway
+    return;
+  }
+  
+  updateRunButton(RunButtonState.INITIALIZING);
   ws.send(
     JSON.stringify({
       action: "run_bot",
@@ -327,12 +395,53 @@ ws.onopen = () => {
   connDot.classList.remove("down");
   connDot.classList.add("live");
   connLabel.textContent = "Connected";
-  runBtn.disabled = false;
+  
+  // Only set to READY if bot is NOT running and NOT initializing
+  if (!isBotRunning && !isInitializing) {
+    updateRunButton(RunButtonState.READY);
+  } else if (isBotRunning) {
+    // Bot is running, keep it in RUNNING state
+    updateRunButton(RunButtonState.RUNNING);
+  } else if (isInitializing) {
+    // Still initializing, keep it in INITIALIZING state
+    updateRunButton(RunButtonState.INITIALIZING);
+  }
+  
   setWaiting("watching");
 };
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
+
+  
+
+  if (data.trade_stream && data.trade_stream.balance) {
+    balanceEl.textContent = data.trade_stream.balance;
+  }
+
+  // Check if bot is running - this takes priority over all other states
+  if (data.bot && data.bot.running || data.trade_stream && data.trade_stream.bot.running) {
+    isBotRunning = true;
+    isInitializing = false; // Clear initializing flag when bot starts running
+    updateRunButton(RunButtonState.RUNNING);
+  } else {
+    // Bot is not running
+    isBotRunning = false;
+    // Only reset to READY if we're not in CONNECTING or CLOSED state
+    // and we're not currently initializing
+    if (currentRunButtonState !== RunButtonState.CONNECTING && 
+        currentRunButtonState !== RunButtonState.CLOSED &&
+        !isInitializing) {
+      updateRunButton(RunButtonState.READY);
+    } else if (isInitializing) {
+      // Keep it in INITIALIZING state
+      updateRunButton(RunButtonState.INITIALIZING);
+    }
+  }
+
+  
+
+
 
   if (data.balance !== undefined && data.pl !== undefined) {
     balanceEl.textContent = data.balance;
@@ -351,13 +460,30 @@ ws.onmessage = (event) => {
   if (data.trade_stream) {
     renderTradeStream(data.trade_stream);
   }
+
+  if (data.trade_stream && data.trade_stream.end_of_stream) {
+    waitingText.textContent = "Trade Completed";
+    waitingIndicator.classList.add("paused");
+    streamEnded = true;
+    updateRunButton(RunButtonState.READY);
+
+  } else {
+    // reset stream ended
+    streamEnded = false;
+  }
 };
 
 ws.onclose = (event) => {
   connDot.classList.remove("live");
   connDot.classList.add("down");
   connLabel.textContent = "Disconnected";
-  runBtn.disabled = true;
+  
+  // Reset bot running and initializing flags when connection closes
+  isBotRunning = false;
+  isInitializing = false;
+  
+  // When connection closes, button should always be disabled and show "Connection closed"
+  updateRunButton(RunButtonState.CLOSED);
   setWaiting("down");
 };
 
@@ -365,7 +491,12 @@ ws.onerror = () => {
   connDot.classList.remove("live");
   connDot.classList.add("down");
   connLabel.textContent = "Connection error";
-  runBtn.disabled = true;
+  
+  // Reset bot running and initializing flags on error
+  isBotRunning = false;
+  isInitializing = false;
+  
+  updateRunButton(RunButtonState.CLOSED);
   setWaiting("down");
 };
 

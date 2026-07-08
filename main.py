@@ -27,7 +27,7 @@ INTER_SESSION_PAUSE = 5  # seconds
 #   MAX_SESSIONS = 3            -> runs exactly 3 sessions, then stops
 #   MAX_SESSIONS = math.inf     -> runs forever until Ctrl+C ("infinite")
 #   MAX_SESSIONS = None         -> also runs forever until Ctrl+C (same as above)
-MAX_SESSIONS = 3 or math.inf
+MAX_SESSIONS = 1 or math.inf
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -37,10 +37,11 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    # Remove DerivClient usage here - balance will be streamed via WebSocket
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"title": "FastAPI", "message": "Hello, FastAPI!"},
+        context={"title": "FastAPI", "balance": "-", "PL": "null"},
     )
 
 
@@ -81,7 +82,7 @@ async def get_market_trend(client, symbol):
 
 
 async def stream(ws: WebSocket, data: dict):
-    await ws.send_json({"trade_stream": data})
+    await ws.send_json({"trade_stream": data} | {"bot": {"running": True}})
 
 
 # ==========================================
@@ -126,7 +127,8 @@ async def run_session(client, session_num, ws: WebSocket):
 
     session_initializer = {
         "widget": "session_initializer",
-        "title": f"SESSION {session_num} — INITIALIZING",
+        "title": f"SESSION {session_num} out of {MAX_SESSIONS} INITIALIZING",
+        "balance": await get_account_balance(client),
         "metadata": {
             "risk_engine": STRATEGY_TYPE,
             "selection_mode": DIRECTION_MODE,
@@ -142,6 +144,7 @@ async def run_session(client, session_num, ws: WebSocket):
             target_profit_reached = {
                 "widget": "snackbar",
                 "title": "TARGET PROFIT REACHED!",
+                "balance": await get_account_balance(client),
                 "metadata": {
                     "session": session_num,
                     "message": f"Session {session_num} Stopping.",
@@ -154,6 +157,7 @@ async def run_session(client, session_num, ws: WebSocket):
             stop_loss_breached = {
                 "widget": "snackbar",
                 "title": "STOP LOSS LIMIT BREACHED!",
+                "balance": await get_account_balance(client),
                 "metadata": {
                     "session": session_num,
                     "message": f"Session {session_num}.",
@@ -187,6 +191,7 @@ async def run_session(client, session_num, ws: WebSocket):
             stop_loss_guardrail = {
                 "widget": "detailed_snackbar",
                 "title": "STOP-LOSS GUARDRAIL TRIGGERED",
+                "balance": await get_account_balance(client),
                 "metadata": {
                     "stake": f"{current_stake:.2f}",
                     "remaining_loss_budget": f"{remaining_budget:.2f}",
@@ -202,6 +207,7 @@ async def run_session(client, session_num, ws: WebSocket):
                 no_loss_budget = {
                     "widget": "snackbar",
                     "title": "NO LOSS BUDGET REMAINS",
+                    "balance": await get_account_balance(client),
                     "metadata": {
                         "message": "No loss budget remains — ending session now.",
                         "status": "warning",
@@ -213,6 +219,7 @@ async def run_session(client, session_num, ws: WebSocket):
             stake_clamped = {
                 "widget": "detailed_snackbar",
                 "title": "STAKE CLAMPED",
+                "balance": await get_account_balance(client),
                 "metadata": {
                     "stake": current_stake,
                     "message": f"Clamping stake to remaining budget: {current_stake:.2f}",
@@ -224,7 +231,8 @@ async def run_session(client, session_num, ws: WebSocket):
         # Clean Logging Interface (Per-Trade Metrics Dashboard)
         session_summary = {
             "widget": "session_summary",
-            "title": f"SESSION {session_num} | TRADE {trade_count} DASHBOARD",
+            "title": f"SESSION {session_num} out of {MAX_SESSIONS} | TRADE {trade_count} DASHBOARD",
+            "balance": await get_account_balance(client),
             "metadata": {
                 "balance_before": balance_before_trade,
                 "currency": CURRENCY,
@@ -256,6 +264,7 @@ async def run_session(client, session_num, ws: WebSocket):
             order_rejected = {
                 "widget": "snackbar",
                 "title": "ORDER REJECTED BY SERVER",
+                "balance": await get_account_balance(client),
                 "metadata": {
                     "message": buy_response["error"]["message"],
                     "status": "error",
@@ -267,6 +276,7 @@ async def run_session(client, session_num, ws: WebSocket):
                 {
                     "widget": "snackbar",
                     "title": "RETRYING EXECUTION",
+                    "balance": await get_account_balance(client),
                     "metadata": {
                         "message": "Retrying loop execution sequence in 5 seconds...",
                         "retry_in_seconds": 5,
@@ -311,6 +321,7 @@ async def run_session(client, session_num, ws: WebSocket):
         trade_result_summary = {
             "widget": "trade_result",
             "title": f"TRADE #{trade_count} RESULT",
+            "balance": await get_account_balance(client),
             "metadata": {
                 "outcome": result_str,
                 "profit": contract_profit,
@@ -345,6 +356,7 @@ async def run_session(client, session_num, ws: WebSocket):
                     {
                         "widget": "risk_alert",
                         "title": "MAX STAKE GUARDRAIL BREACHED",
+                        "balance": await get_account_balance(client),
                         "metadata": {
                             "stake": current_stake,
                             "max_stake": MAX_STAKE,
@@ -366,6 +378,7 @@ async def run_session(client, session_num, ws: WebSocket):
     session_summary_report = {
         "widget": "session_summary",
         "title": f"SESSION #{session_num} COMPLETED SUMMARY REPORT",
+        "balance": await get_account_balance(client),
         "metadata": {
             "initial_balance": initial_session_balance,
             "final_balance": final_session_balance,
@@ -384,34 +397,10 @@ async def run_session(client, session_num, ws: WebSocket):
     return total_profit_loss
 
 
-# async def sender(ws: WebSocket):
-
-#     try:
-#         while True:
-
-#             await asyncio.sleep(5)
-#             # pass
-#             # # hearbeat
-#             # await ws.send_json(
-#             #     {
-#             #         "balance": 10234.56,
-#             #         "pl": 18.75,
-#             #         "status": f"OK, websocket running [{count}]",
-#             #         "color": random.choice(
-#             #             ["red", "blue", "green", "brown", "#20bebe", "orange"]
-#             #         ),
-#             #         "timestamp": datetime.now().isoformat(),
-#             #     }
-#             # )
-
-#     except (WebSocketDisconnect, RuntimeError):
-#         print("Sender stopped.")
-#     except asyncio.CancelledError:
-#         print("Sender cancelled.")
-#         raise
-
-
 async def receiver(ws: WebSocket):
+    # Create a single client instance that will be reused
+    client = None
+
     try:
         while True:
             data = await ws.receive_json()
@@ -425,20 +414,26 @@ async def receiver(ws: WebSocket):
                         "status": "Connecting to Deriv servers...",
                     }
                 )
-                client = DerivClient(ws_url=get_ws_url(account_type="demo"))
-                await client.connect()
 
+                # Only create client if it doesn't exist or was closed
+                if client is None:
+                    client = DerivClient(ws_url=get_ws_url(account_type="demo"))
+                    await client.connect()
+
+                # Send initial balance via WebSocket
+                initial_balance = await get_account_balance(client)
                 await ws.send_json(
                     {
-                        "balance": await get_account_balance(client),
+                        "balance": initial_balance,
                         "pl": 0.00,
-                        "status": "Connected! Initializing trades...",
+                        "bot": {"running": True},
+                        "is_initial": True,
                     }
                 )
 
                 grand_total_pnl = 0.0
                 session_num = 0
-                starting_balance = await get_account_balance(client)
+                starting_balance = initial_balance
 
                 try:
                     while MAX_SESSIONS is None or session_num < MAX_SESSIONS:
@@ -450,7 +445,8 @@ async def receiver(ws: WebSocket):
 
                         cumulative_status_report = {
                             "widget": "cumulative_status",
-                            "title": f"SESSIONS CUMULATIVE STATUS (after session #{session_num})",
+                            "title": f"SESSIONS CUMULATIVE STATUS (::S{session_num})",
+                            "balance": running_balance,
                             "metadata": {
                                 "starting_balance": starting_balance,
                                 "current_balance": running_balance,
@@ -473,6 +469,7 @@ async def receiver(ws: WebSocket):
                                 {
                                     "widget": "notification",
                                     "title": "INTER-SESSION PAUSE",
+                                    "balance": await get_account_balance(client),
                                     "metadata": {
                                         "duration_seconds": INTER_SESSION_PAUSE,
                                         "message": f"Pausing {INTER_SESSION_PAUSE}s before starting next session...",
@@ -488,6 +485,9 @@ async def receiver(ws: WebSocket):
                         {
                             "widget": "notification",
                             "title": "MANUAL INTERRUPT RECEIVED",
+                            "balance": (
+                                await get_account_balance(client) if client else 0
+                            ),
                             "metadata": {
                                 "message": "Shutting down gracefully...",
                                 "signal": "SIGINT",
@@ -497,65 +497,89 @@ async def receiver(ws: WebSocket):
                     )
 
                 finally:
-                    final_balance = await get_account_balance(client)
+                    if client:
+                        final_balance = await get_account_balance(client)
 
-                    bot_shutdown_summary = {
-                        "widget": "bot_shutdown_summary",
-                        "title": "BOT SHUTDOWN — FINAL ALL-TIME SUMMARY",
-                        "metadata": {
-                            "sessions_run": session_num,
-                            "starting_balance": starting_balance,
-                            "final_balance": final_balance,
-                            "all_time_net_pnl": grand_total_pnl,
-                            "currency": CURRENCY,
-                            "status": (
-                                "profit"
-                                if grand_total_pnl > 0
-                                else "loss" if grand_total_pnl < 0 else "breakeven"
-                            ),
-                        },
-                    }
+                        bot_shutdown_summary = {
+                            "widget": "bot_shutdown_summary",
+                            "title": "BOT SHUTDOWN FINAL ALL-TIME SUMMARY",
+                            "balance": final_balance,
+                            "end_of_stream": True,
+                            "metadata": {
+                                "sessions_run": session_num,
+                                "starting_balance": starting_balance,
+                                "final_balance": final_balance,
+                                "all_time_net_pnl": grand_total_pnl,
+                                "currency": CURRENCY,
+                                "status": (
+                                    "profit"
+                                    if grand_total_pnl > 0
+                                    else "loss" if grand_total_pnl < 0 else "breakeven"
+                                ),
+                            },
+                        }
 
-                    await stream(ws, bot_shutdown_summary)
+                        await stream(ws, bot_shutdown_summary)
 
-                    await client.close()
-
-                await ws.send_json(
-                    {
-                        "balance": await get_account_balance(client),
-                        "pl": "PL: Coming soon",
-                        "status": "COMMAND: Run Bot!",
-                        "color": random.choice(
-                            ["red", "blue", "green", "brown", "#20bebe", "orange"]
-                        ),
-                        "timestamp": datetime.now().isoformat(),
-                    }
-                )
+                        await client.close()
+                        client = None
 
             elif action == "stop_bot":
-                await stream(ws, "Stopping bot...")
+                if client:
+                    # Close the client connection
+                    await client.close()
+                    client = None
+                await stream(
+                    ws,
+                    {
+                        "title": "Bot Stopped",
+                        "balance": "Disconnected",
+                        "metadata": {
+                            "message": "Bot stopped by user request",
+                            "status": "info",
+                        },
+                    },
+                )
 
             elif action == "change_stake":
                 await stream(ws, "New stake:", data["stake"])
 
             elif action == "switch_account":
+                if client:
+                    await client.close()
+                    client = None
                 await stream(ws, "Account:", data["account"])
+
+            elif action == "get_balance":
+                if client:
+                    balance = await get_account_balance(client)
+                    await ws.send_json(
+                        {
+                            "balance": balance,
+                            "pl": 0.00,
+                            "status": "Balance updated",
+                            "is_balance_update": True,
+                        }
+                    )
+                else:
+                    await ws.send_json(
+                        {"balance": "Not connected", "status": "No active connection"}
+                    )
+
     except WebSocketDisconnect:
         print("Client disconnected.")
+        if client:
+            await client.close()
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
 
-    # sender_task = asyncio.create_task(sender(ws))
     receiver_task = asyncio.create_task(receiver(ws))
 
     done, pending = await asyncio.wait(
-        [
-            # sender_task,
-            receiver_task
-        ],
+        [receiver_task],
         return_when=asyncio.FIRST_COMPLETED,
     )
 
