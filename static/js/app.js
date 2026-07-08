@@ -8,6 +8,22 @@ const connLabel = document.getElementById("connLabel");
 const balanceEl = document.getElementById("balance");
 const plEl = document.getElementById("PL");
 const modeButtons = document.querySelectorAll(".mode-btn");
+const waitingIndicator = document.getElementById("waitingIndicator");
+const waitingText = document.getElementById("waitingText");
+
+function setWaiting(state) {
+  // state: "connecting" | "watching" | "down"
+  if (state === "connecting") {
+    waitingIndicator.classList.remove("paused");
+    waitingText.textContent = "Connecting…";
+  } else if (state === "watching") {
+    waitingIndicator.classList.remove("paused");
+    waitingText.textContent = "Watching for the next update…";
+  } else {
+    waitingIndicator.classList.add("paused");
+    waitingText.textContent = "Disconnected — reconnect to resume";
+  }
+}
 
 let selectedMode = "demo";
 
@@ -74,6 +90,7 @@ function makeBadge(text, accent) {
  */
 function pushFeedItem(accent, cardEl) {
   clearEmptyState();
+  if (ws.readyState === WebSocket.OPEN) setWaiting("watching");
 
   const item = document.createElement("div");
   item.className = "feed-item";
@@ -311,6 +328,7 @@ ws.onopen = () => {
   connDot.classList.add("live");
   connLabel.textContent = "Connected";
   runBtn.disabled = false;
+  setWaiting("watching");
 };
 
 ws.onmessage = (event) => {
@@ -340,6 +358,7 @@ ws.onclose = (event) => {
   connDot.classList.add("down");
   connLabel.textContent = "Disconnected";
   runBtn.disabled = true;
+  setWaiting("down");
 };
 
 ws.onerror = () => {
@@ -347,6 +366,7 @@ ws.onerror = () => {
   connDot.classList.add("down");
   connLabel.textContent = "Connection error";
   runBtn.disabled = true;
+  setWaiting("down");
 };
 
 window.addEventListener("pagehide", () => {

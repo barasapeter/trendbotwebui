@@ -4,460 +4,58 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
-
     <link rel="stylesheet" href="/static/css/style.css">
-
-    <style>
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-    </style>
 </head>
 <body>
+    <div class="app">
 
-    <div class="balance">
-        <h1 id="balance">{{ balance or "0.00" }}</h1>
-    </div>
+        <header class="topbar">
+            <div class="brand">
+                <span class="conn-dot down" id="connDot"></span>
+                <span>Trading Session</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:16px;">
+                <span class="conn-label" id="connLabel">Connecting…</span>
+                <button class="btn-settings" type="button">Settings</button>
+            </div>
+        </header>
 
-    <div class="pl">
-        <h1 id="PL">{{ PL or "0.00" }}</h1>
-    </div>
+        <section class="readout" aria-label="Account readout">
+            <div class="readout-cell">
+                <span class="readout-label">Balance</span>
+                <span class="readout-value" id="balance">{{ balance or "0.00" }}</span>
+            </div>
+            <div class="readout-cell">
+                <span class="readout-label">Session P&amp;L</span>
+                <span class="readout-value" id="PL">{{ PL or "0.00" }}</span>
+            </div>
+        </section>
 
-    <button>Settings</button>
-
-    <div class="graph">
-        Graph goes here...
-    </div>
-
-    <div class="mode">
-        <button>Demo</button>
-        <button>Real</button>
-    </div>
-
-    <div class="main-controls">
-        <br>
-        <button id="runBtn" disabled>Run Bot</button>
-    </div>
-
-    <div class="toast">
-        Toast messages here...
-    </div>
-
-    <div class="trade-logs">
-        <div class="log">
-            Dynamic trade logs showing stake and trade PL
+        <div class="controls">
+            <div class="mode-toggle" role="group" aria-label="Account mode">
+                <button class="mode-btn active" data-mode="demo" type="button">Demo</button>
+                <button class="mode-btn" data-mode="real" type="button">Real</button>
+            </div>
+            <button class="btn-run" id="runBtn" type="button" disabled>Run Bot</button>
         </div>
 
-        <div id="sample"></div>
+        <section class="panel">
+            <h2 class="panel-header">Live Session Feed</h2>
+            <div class="waiting-indicator" id="waitingIndicator">
+                <span class="waiting-dots">
+                    <span class="waiting-dot"></span>
+                    <span class="waiting-dot"></span>
+                    <span class="waiting-dot"></span>
+                </span>
+                <span id="waitingText">Connecting…</span>
+            </div>
+            <div class="feed-body" id="feedBody">
+                <p class="feed-empty">Trade activity will appear here once the bot is running.</p>
+            </div>
+        </section>
+
     </div>
 
-    <script src="/static/js/script.js"></script>
-
-    <script>
-        const output = document.getElementById("sample");
-        const runBtn = document.getElementById("runBtn");
-
-        // Disable button until WebSocket is connected
-        runBtn.disabled = true;
-
-        const ws = new WebSocket("ws://localhost:8000/ws");
-
-        runBtn.onclick = () => {
-            if (ws.readyState !== WebSocket.OPEN) {
-                return;
-            }
-
-            ws.send(JSON.stringify({
-                action: "run_bot",
-                mode: "demo",
-                stake: 5
-            }));
-        };
-
-        ws.onopen = () => {
-            console.log("Connected");
-            runBtn.disabled = false;
-        };
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-
-            if (data.balance && data.pl) {
-                document.getElementById("balance").textContent = data.balance;
-                document.getElementById("PL").textContent = data.pl;
-            }
-            
-
-            const p = document.createElement("p");
-            p.style.color = data.color;
-            p.textContent = data.status;
-
-            output.prepend(p);
-
-            if (data.trade_stream) {
-                console.log(data.trade_stream);
-
-                if (data.trade_stream.widget === "session_initializer") {
-
-                    const sessionInitializerDiv = document.createElement("div");
-                    sessionInitializerDiv.className = "session-initializer";
-
-                    const sessionInitializerTitle = document.createElement("h2");
-                    sessionInitializerTitle.textContent = data.trade_stream.title;
-                    sessionInitializerDiv.appendChild(sessionInitializerTitle);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const fields = [
-                        ["Risk Engine", metadata.risk_engine],
-                        ["Selection Mode", metadata.selection_mode],
-                        ["Starting Balance", metadata.starting_balance],
-                        ["Take Profit Goal", metadata.take_profit_goal],
-                        ["Max Stop Loss", metadata.max_stop_loss],
-                    ];
-
-                    fields.forEach(([label, value]) => {
-                        const row = document.createElement("p");
-
-                        const strong = document.createElement("strong");
-                        strong.textContent = `${label}: `;
-
-                        row.appendChild(strong);
-                        row.append(value);
-
-                        sessionInitializerDiv.appendChild(row);
-                    });
-
-                    output.prepend(sessionInitializerDiv);
-                }
-
-                if (data.trade_stream.widget === "snackbar") {
-
-                    const snackbar = document.createElement("div");
-                    snackbar.className = `snackbar ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h3");
-                    title.textContent = data.trade_stream.title;
-
-                    const message = document.createElement("p");
-                    message.textContent = data.trade_stream.metadata.message;
-
-                    snackbar.appendChild(title);
-                    snackbar.appendChild(message);
-
-                    output.prepend(snackbar);
-                }
-
-                if (data.trade_stream.widget === "detailed_snackbar") {
-
-                    const snackbar = document.createElement("div");
-                    snackbar.className = `snackbar detailed ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h3");
-                    title.textContent = data.trade_stream.title;
-
-                    const message = document.createElement("p");
-                    message.textContent = data.trade_stream.metadata.message;
-
-                    const stake = document.createElement("p");
-                    stake.innerHTML = `<strong>Stake:</strong> ${data.trade_stream.metadata.stake}`;
-
-                    const remainingBudget = document.createElement("p");
-                    remainingBudget.innerHTML =
-                        `<strong>Remaining Loss Budget:</strong> ${data.trade_stream.metadata.remaining_loss_budget}`;
-
-                    snackbar.appendChild(title);
-                    snackbar.appendChild(message);
-                    snackbar.appendChild(stake);
-                    snackbar.appendChild(remainingBudget);
-
-                    output.prepend(snackbar);
-                }
-
-                if (data.trade_stream.widget === "session_summary") {
-
-                    const summary = document.createElement("div");
-                    summary.className = "session-summary";
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-
-                    summary.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const fields = [
-                        ["Balance Before", `${metadata.balance_before} ${metadata.currency}`],
-                        ["Market Context", metadata.market_context],
-                        ["Direction", metadata.direction],
-                        ["Stake", `${metadata.stake} ${metadata.currency}`],
-                    ];
-
-                    fields.forEach(([label, value]) => {
-                        const row = document.createElement("p");
-
-                        const strong = document.createElement("strong");
-                        strong.textContent = `${label}: `;
-
-                        row.appendChild(strong);
-                        row.append(value);
-
-                        summary.appendChild(row);
-                    });
-
-                    output.prepend(summary);
-                }
-
-                if (data.trade_stream.widget === "trade_result") {
-
-                    const result = document.createElement("div");
-                    result.className = `trade-result ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-
-                    result.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const fields = [
-                        ["Outcome", metadata.outcome],
-                        ["Profit", `${metadata.profit} ${metadata.currency}`],
-                        ["Balance After", `${metadata.balance_after} ${metadata.currency}`],
-                        ["Session Net P&L", `${metadata.session_net_pnl} ${metadata.currency}`],
-                    ];
-
-                    fields.forEach(([label, value]) => {
-                        const row = document.createElement("p");
-
-                        const strong = document.createElement("strong");
-                        strong.textContent = `${label}: `;
-
-                        row.appendChild(strong);
-                        row.append(value);
-
-                        result.appendChild(row);
-                    });
-
-                    output.prepend(result);
-                }
-
-                if (data.trade_stream.widget === "risk_alert") {
-
-                    const alert = document.createElement("div");
-                    alert.className = `risk-alert ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-
-                    alert.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const message = document.createElement("p");
-                    message.textContent = metadata.message;
-                    alert.appendChild(message);
-
-                    const fields = [
-                        ["Current Stake", metadata.stake],
-                        ["Maximum Allowed Stake", metadata.max_stake],
-                    ];
-
-                    fields.forEach(([label, value]) => {
-                        const row = document.createElement("p");
-
-                        const strong = document.createElement("strong");
-                        strong.textContent = `${label}: `;
-
-                        row.appendChild(strong);
-                        row.append(value);
-
-                        alert.appendChild(row);
-                    });
-
-                    output.prepend(alert);
-                }
-
-                if (data.trade_stream.widget === "session_summary" &&
-                    data.trade_stream.metadata.initial_balance !== undefined) {
-
-                    const summary = document.createElement("div");
-                    summary.className = `session-summary ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-
-                    summary.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const fields = [
-                        ["Initial Balance", `${metadata.initial_balance} ${metadata.currency}`],
-                        ["Final Balance", `${metadata.final_balance} ${metadata.currency}`],
-                        ["Net Delta", `${metadata.net_delta} ${metadata.currency}`],
-                    ];
-
-                    fields.forEach(([label, value]) => {
-                        const row = document.createElement("p");
-
-                        const strong = document.createElement("strong");
-                        strong.textContent = `${label}: `;
-
-                        row.appendChild(strong);
-                        row.append(value);
-
-                        summary.appendChild(row);
-                    });
-
-                    output.prepend(summary);
-                }
-
-                if (data.trade_stream.widget === "cumulative_status") {
-
-                    const status = document.createElement("div");
-                    status.className = `cumulative-status ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-
-                    status.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const fields = [
-                        ["Starting Balance", `${metadata.starting_balance} ${metadata.currency}`],
-                        ["Current Balance", `${metadata.current_balance} ${metadata.currency}`],
-                        ["Cumulative Net P&L", `${metadata.cumulative_net_pnl} ${metadata.currency}`],
-                    ];
-
-                    fields.forEach(([label, value]) => {
-                        const row = document.createElement("p");
-
-                        const strong = document.createElement("strong");
-                        strong.textContent = `${label}: `;
-
-                        row.appendChild(strong);
-                        row.append(value);
-
-                        status.appendChild(row);
-                    });
-
-                    output.prepend(status);
-                }
-
-                if (data.trade_stream.widget === "notification") {
-
-                    const notification = document.createElement("div");
-                    notification.className = `notification ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-
-                    notification.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const message = document.createElement("p");
-                    message.textContent = metadata.message;
-                    notification.appendChild(message);
-
-                    const duration = document.createElement("p");
-                    duration.innerHTML = `<strong>Duration:</strong> ${metadata.duration_seconds} seconds`;
-
-                    notification.appendChild(duration);
-
-                    output.prepend(notification);
-                }
-
-                if (data.trade_stream.widget === "notification") {
-
-                    const notification = document.createElement("div");
-                    notification.className = `notification ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-                    notification.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const message = document.createElement("p");
-                    message.textContent = metadata.message;
-                    notification.appendChild(message);
-
-                    if (metadata.duration_seconds !== undefined) {
-                        const duration = document.createElement("p");
-                        duration.innerHTML = `<strong>Duration:</strong> ${metadata.duration_seconds} seconds`;
-                        notification.appendChild(duration);
-                    }
-
-                    if (metadata.signal !== undefined) {
-                        const signal = document.createElement("p");
-                        signal.innerHTML = `<strong>Signal:</strong> ${metadata.signal}`;
-                        notification.appendChild(signal);
-                    }
-
-                    output.prepend(notification);
-                }
-
-                if (data.trade_stream.widget === "bot_shutdown_summary") {
-
-                    const summary = document.createElement("div");
-                    summary.className = `bot-shutdown-summary ${data.trade_stream.metadata.status}`;
-
-                    const title = document.createElement("h2");
-                    title.textContent = data.trade_stream.title;
-
-                    summary.appendChild(title);
-
-                    const metadata = data.trade_stream.metadata;
-
-                    const fields = [
-                        ["Sessions Run", metadata.sessions_run],
-                        ["Starting Balance", `${metadata.starting_balance} ${metadata.currency}`],
-                        ["Final Balance", `${metadata.final_balance} ${metadata.currency}`],
-                        ["All-Time Net P&L", `${metadata.all_time_net_pnl} ${metadata.currency}`],
-                    ];
-
-                    fields.forEach(([label, value]) => {
-                        const row = document.createElement("p");
-
-                        const strong = document.createElement("strong");
-                        strong.textContent = `${label}: `;
-
-                        row.appendChild(strong);
-                        row.append(value);
-
-                        summary.appendChild(row);
-                    });
-
-                    output.prepend(summary);
-                }
-            }
-        };
-
-        ws.onclose = (event) => {
-            console.log("Disconnected", event.code, event.reason);
-            runBtn.disabled = true;
-        };
-
-        ws.onerror = (error) => {
-            console.error("WebSocket error:", error);
-            runBtn.disabled = true;
-        };
-
-        window.addEventListener("pagehide", () => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.close(1000, "Page unloaded");
-            }
-        });
-
-        window.addEventListener("beforeunload", () => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.close(1000, "Page unloading");
-            }
-        });
-    </script>
-
+    <script src="/static/js/app.js"></script>
 </body>
 </html>

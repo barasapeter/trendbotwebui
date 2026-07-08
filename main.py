@@ -27,7 +27,7 @@ INTER_SESSION_PAUSE = 5  # seconds
 #   MAX_SESSIONS = 3            -> runs exactly 3 sessions, then stops
 #   MAX_SESSIONS = math.inf     -> runs forever until Ctrl+C ("infinite")
 #   MAX_SESSIONS = None         -> also runs forever until Ctrl+C (same as above)
-MAX_SESSIONS = 1 or math.inf
+MAX_SESSIONS = 3 or math.inf
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
