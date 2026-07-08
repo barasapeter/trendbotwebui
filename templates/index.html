@@ -6,6 +6,13 @@
     <title>{{ title }}</title>
 
     <link rel="stylesheet" href="/static/css/style.css">
+
+    <style>
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body>
 
@@ -30,7 +37,7 @@
 
     <div class="main-controls">
         <br>
-        <button id="runBtn">Run Bot</button>
+        <button id="runBtn" disabled>Run Bot</button>
     </div>
 
     <div class="toast">
@@ -43,22 +50,34 @@
         </div>
 
         <div id="sample"></div>
-
     </div>
 
     <script src="/static/js/script.js"></script>
-    
+
     <script>
         const output = document.getElementById("sample");
+        const runBtn = document.getElementById("runBtn");
+
+        // Disable button until WebSocket is connected
+        runBtn.disabled = true;
 
         const ws = new WebSocket("ws://localhost:8000/ws");
 
-        document.getElementById("runBtn").onclick = () => {
+        runBtn.onclick = () => {
+            if (ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
             ws.send(JSON.stringify({
                 action: "run_bot",
                 mode: "demo",
                 stake: 5
             }));
+        };
+
+        ws.onopen = () => {
+            console.log("Connected");
+            runBtn.disabled = false;
         };
 
         ws.onmessage = (event) => {
@@ -72,14 +91,20 @@
             p.textContent = data.status;
 
             output.prepend(p);
-        };
 
-        ws.onopen = () => {
-            console.log("Connected");
+            if (data.trade_stream) {
+                console.log(data.trade_stream);
+            }
         };
 
         ws.onclose = (event) => {
             console.log("Disconnected", event.code, event.reason);
+            runBtn.disabled = true;
+        };
+
+        ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
+            runBtn.disabled = true;
         };
 
         window.addEventListener("pagehide", () => {
@@ -94,5 +119,6 @@
             }
         });
     </script>
+
 </body>
 </html>

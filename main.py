@@ -81,8 +81,8 @@ async def get_market_trend(client, symbol):
     return "CALL", "STAGNANT MARKETS (No Edge Detected)"
 
 
-async def stream(ws: WebSocket, message: str):
-    await ws.send_json({"status": message})
+async def stream(ws: WebSocket, data: dict):
+    await ws.send_json({"trade_stream": data})
 
 
 # ==========================================
@@ -125,30 +125,43 @@ async def run_session(client, session_num, ws: WebSocket):
 
     initial_session_balance = await get_account_balance(client)
 
-    session_initializer = textwrap.dedent(
-        f"""
-    ==================================================
-    SESSION #{session_num} — INITIALIZING
-    ==================================================
-    Risk Engine     : {STRATEGY_TYPE}
-    Selection Mode  : {DIRECTION_MODE}
-    Starting Balance: {initial_session_balance:.2f} {CURRENCY}
-    Take Profit Goal: +{PROFIT_THRESHOLD} {CURRENCY}
-    Max Stop Loss   : -{LOSS_THRESHOLD} {CURRENCY}
-    ==================================================
-    """.strip()
-    )
+    session_initializer = {
+        "widget": "session_initializer",
+        "title": f"SESSION {session_num} — INITIALIZING",
+        "metadata": {
+            "risk_engine": STRATEGY_TYPE,
+            "selection_mode": DIRECTION_MODE,
+            "starting_balance": f"{initial_session_balance:.2f} {CURRENCY}",
+            "take_profit_goal": f"+{PROFIT_THRESHOLD} {CURRENCY}",
+            "max_stop_loss": f"-{LOSS_THRESHOLD} {CURRENCY}",
+        },
+    }
     await stream(ws, session_initializer)
 
     while True:
-        # Session Profit / Loss Boundary Checks
         if total_profit_loss >= PROFIT_THRESHOLD:
-            await stream(
-                ws, f"TARGET PROFIT REACHED! Session #{session_num} Stopping Safely."
-            )
+            target_profit_reached = {
+                "widget": "snackbar",
+                "title": "TARGET PROFIT REACHED!",
+                "metadata": {
+                    "session": session_num,
+                    "message": f"Session {session_num} Stopping.",
+                    "status": "success",
+                },
+            }
+            await stream(ws, target_profit_reached)
             break
         if total_profit_loss <= -LOSS_THRESHOLD:
-            await stream(ws, f"{RED}STOP LOSS LIMIT BREACHED! Session #{session_num}.")
+            stop_loss_breached = {
+                "widget": "snackbar",
+                "title": "STOP LOSS LIMIT BREACHED!",
+                "metadata": {
+                    "session": session_num,
+                    "message": f"Session {session_num}.",
+                    "status": "error",
+                },
+            }
+            await stream(ws, stop_loss_breached)
             break
 
         trade_count += 1
@@ -172,28 +185,55 @@ async def run_session(client, session_num, ws: WebSocket):
         # single trade can never blow past LOSS_THRESHOLD outright.
         remaining_budget = LOSS_THRESHOLD + total_profit_loss  # e.g. 25 + (-20) = 5
         if current_stake > remaining_budget:
-            await stream(
-                ws,
-                f"Stop-Loss Guardrail Triggered: stake {current_stake:.2f} exceeds "
-                f"remaining loss budget of {remaining_budget:.2f}!",
-            )
+            stop_loss_guardrail = {
+                "widget": "detailed_snackbar",
+                "title": "STOP-LOSS GUARDRAIL TRIGGERED",
+                "metadata": {
+                    "stake": f"{current_stake:.2f}",
+                    "remaining_loss_budget": f"{remaining_budget:.2f}",
+                    "message": (
+                        f"Stake {current_stake:.2f} exceeds remaining "
+                        f"loss budget of {remaining_budget:.2f}."
+                    ),
+                    "status": "warning",
+                },
+            }
+            await stream(ws, stop_loss_guardrail)
             if remaining_budget <= 0:
-                await stream(ws, "No loss budget remains — ending session now.")
+                no_loss_budget = {
+                    "widget": "snackbar",
+                    "title": "NO LOSS BUDGET REMAINS",
+                    "metadata": {
+                        "message": "No loss budget remains — ending session now.",
+                        "status": "warning",
+                    },
+                }
+                await stream(ws, no_loss_budget)
                 break
             current_stake = round(remaining_budget, 2)
-            await stream(ws, f"Clamping stake to remaining budget: {current_stake:.2f}")
+            stake_clamped = {
+                "widget": "detailed_snackbar",
+                "title": "STAKE CLAMPED",
+                "metadata": {
+                    "stake": current_stake,
+                    "message": f"Clamping stake to remaining budget: {current_stake:.2f}",
+                    "status": "info",
+                },
+            }
+            await stream(ws, stake_clamped)
 
         # Clean Logging Interface (Per-Trade Metrics Dashboard)
-        session_summary = textwrap.dedent(
-            f"""
-            --------------------------------------------------
-            SESSION #{session_num} | TRADE #{trade_count} DASHBOARD
-            --------------------------------------------------
-            Balance Before : {balance_before_trade:.2f} {CURRENCY}
-            Market Context : {trend_label}
-            Execution      : Buying {current_direction} | Stake: {current_stake:.2f} {CURRENCY}
-            """.strip()
-        )
+        session_summary = {
+            "widget": "session_summary",
+            "title": f"SESSION {session_num} | TRADE {trade_count} DASHBOARD",
+            "metadata": {
+                "balance_before": balance_before_trade,
+                "currency": CURRENCY,
+                "market_context": trend_label,
+                "direction": current_direction,
+                "stake": current_stake,
+            },
+        }
         await stream(ws, session_summary)
 
         # Send Execution Payload
@@ -214,10 +254,27 @@ async def run_session(client, session_num, ws: WebSocket):
         buy_response = await client.send(buy_payload)
 
         if "error" in buy_response:
+            order_rejected = {
+                "widget": "snackbar",
+                "title": "ORDER REJECTED BY SERVER",
+                "metadata": {
+                    "message": buy_response["error"]["message"],
+                    "status": "error",
+                },
+            }
+            await stream(ws, order_rejected)
             await stream(
-                ws, f"Order Rejected by Server: {buy_response['error']['message']}"
+                ws,
+                {
+                    "widget": "snackbar",
+                    "title": "RETRYING EXECUTION",
+                    "metadata": {
+                        "message": "Retrying loop execution sequence in 5 seconds...",
+                        "retry_in_seconds": 5,
+                        "status": "info",
+                    },
+                },
             )
-            await stream(ws, "Retrying loop execution sequence in 5 seconds...")
             await asyncio.sleep(5)
             continue
 
@@ -251,17 +308,23 @@ async def run_session(client, session_num, ws: WebSocket):
         balance_after_trade = await get_account_balance(client)
 
         # Color-coded outcome: green for a win/profit round, red for a loss round
-        outcome_color = GREEN if is_win else RED
         result_str = "WIN" if is_win else "LOSS"
-        pnl_color = GREEN if total_profit_loss >= 0 else RED
-        trade_result_summary = textwrap.dedent(
-            f"""\
-            {outcome_color}Match Outcome   : {result_str} ({contract_profit:+.2f} {CURRENCY}){RESET}
-            Balance After   : {balance_after_trade:.2f} {CURRENCY}
-            {pnl_color}Session Net PnL : {total_profit_loss:+.2f} {CURRENCY}{RESET}
-            --------------------------------------------------
-        """.strip()
-        )
+        trade_result_summary = {
+            "widget": "trade_result",
+            "title": f"TRADE #{trade_count} RESULT",
+            "metadata": {
+                "outcome": result_str,
+                "profit": contract_profit,
+                "balance_after": balance_after_trade,
+                "session_net_pnl": total_profit_loss,
+                "currency": CURRENCY,
+                "status": (
+                    "win"
+                    if contract_profit > 0
+                    else "loss" if contract_profit < 0 else "breakeven"
+                ),
+            },
+        }
 
         await stream(ws, trade_result_summary)
 
@@ -280,10 +343,20 @@ async def run_session(client, session_num, ws: WebSocket):
             if current_stake > MAX_STAKE:
                 await stream(
                     ws,
-                    f"Max Stake Guardrail Breached ({current_stake:.2f} > {MAX_STAKE:.2f})!",
-                )
-                await stream(
-                    ws, f"Dropping stake to initial configuration: {INITIAL_STAKE}"
+                    {
+                        "widget": "risk_alert",
+                        "title": "MAX STAKE GUARDRAIL BREACHED",
+                        "metadata": {
+                            "stake": current_stake,
+                            "max_stake": MAX_STAKE,
+                            "message": (
+                                f"Stake {current_stake:.2f} exceeds the maximum "
+                                f"allowed stake of {MAX_STAKE:.2f}."
+                                f"Dropping stake to initial configuration: {INITIAL_STAKE}"
+                            ),
+                            "status": "error",
+                        },
+                    },
                 )
                 current_stake = INITIAL_STAKE
 
@@ -291,51 +364,52 @@ async def run_session(client, session_num, ws: WebSocket):
 
     # Session Closure Summary Output
     final_session_balance = await get_account_balance(client)
-    summary_color = GREEN if total_profit_loss >= 0 else RED
-    session_summary_report = textwrap.dedent(
-        f"""\
-    ==================================================
-    SESSION #{session_num} COMPLETED SUMMARY REPORT
-    ==================================================
-    Initial Session Balance : {initial_session_balance:.2f} {CURRENCY}
-    Final Session Balance   : {final_session_balance:.2f} {CURRENCY}
-    {summary_color}Session Net Delta Result: {total_profit_loss:+.2f} {CURRENCY}{RESET}
-    ==================================================
-    """.strip()
-    )
+    session_summary_report = {
+        "widget": "session_summary",
+        "title": f"SESSION #{session_num} COMPLETED SUMMARY REPORT",
+        "metadata": {
+            "initial_balance": initial_session_balance,
+            "final_balance": final_session_balance,
+            "net_delta": total_profit_loss,
+            "currency": CURRENCY,
+            "status": (
+                "profit"
+                if total_profit_loss > 0
+                else "loss" if total_profit_loss < 0 else "breakeven"
+            ),
+        },
+    }
 
     await stream(ws, session_summary_report)
 
     return total_profit_loss
 
 
-async def sender(ws: WebSocket):
+# async def sender(ws: WebSocket):
 
-    try:
-        count = 0
-        while True:
+#     try:
+#         while True:
 
-            await asyncio.sleep(10)
-            count += 1
+#             await asyncio.sleep(5)
+#             # pass
+#             # # hearbeat
+#             # await ws.send_json(
+#             #     {
+#             #         "balance": 10234.56,
+#             #         "pl": 18.75,
+#             #         "status": f"OK, websocket running [{count}]",
+#             #         "color": random.choice(
+#             #             ["red", "blue", "green", "brown", "#20bebe", "orange"]
+#             #         ),
+#             #         "timestamp": datetime.now().isoformat(),
+#             #     }
+#             # )
 
-            await ws.send_json(
-                {
-                    "balance": 10234.56,
-                    "pl": 18.75,
-                    "status": f"OK, websocket running [{count}]",
-                    "color": random.choice(
-                        ["red", "blue", "green", "brown", "#20bebe", "orange"]
-                    ),
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-        pass
-
-    except (WebSocketDisconnect, RuntimeError):
-        print("Sender stopped.")
-    except asyncio.CancelledError:
-        print("Sender cancelled.")
-        raise
+#     except (WebSocketDisconnect, RuntimeError):
+#         print("Sender stopped.")
+#     except asyncio.CancelledError:
+#         print("Sender cancelled.")
+#         raise
 
 
 async def receiver(ws: WebSocket):
@@ -360,19 +434,22 @@ async def receiver(ws: WebSocket):
                         grand_total_pnl += session_pnl
 
                         running_balance = await get_account_balance(client)
-                        cumulative_color = GREEN if grand_total_pnl >= 0 else RED
 
-                        cumulative_status_report = textwrap.dedent(
-                            f"""\
-                        {CYAN}==================================================
-                        SESSIONS CUMULATIVE STATUS (after session #{session_num})
-                        =================================================={RESET}
-                        Starting Balance (all time) : {starting_balance:.2f} {CURRENCY}
-                        Current Balance             : {running_balance:.2f} {CURRENCY}
-                        {cumulative_color}Cumulative Net PnL           : {grand_total_pnl:+.2f} {CURRENCY}{RESET}
-                        {CYAN}=================================================={RESET}
-                        """.strip()
-                        )
+                        cumulative_status_report = {
+                            "widget": "cumulative_status",
+                            "title": f"SESSIONS CUMULATIVE STATUS (after session #{session_num})",
+                            "metadata": {
+                                "starting_balance": starting_balance,
+                                "current_balance": running_balance,
+                                "cumulative_net_pnl": grand_total_pnl,
+                                "currency": CURRENCY,
+                                "status": (
+                                    "profit"
+                                    if grand_total_pnl > 0
+                                    else "loss" if grand_total_pnl < 0 else "breakeven"
+                                ),
+                            },
+                        }
 
                         await stream(ws, cumulative_status_report)
 
@@ -380,33 +457,51 @@ async def receiver(ws: WebSocket):
                         if not session_is_final:
                             await stream(
                                 ws,
-                                f"Pausing {INTER_SESSION_PAUSE}s before starting next session...\n",
+                                {
+                                    "widget": "notification",
+                                    "title": "INTER-SESSION PAUSE",
+                                    "metadata": {
+                                        "duration_seconds": INTER_SESSION_PAUSE,
+                                        "message": f"Pausing {INTER_SESSION_PAUSE}s before starting next session...",
+                                        "status": "info",
+                                    },
+                                },
                             )
                             await asyncio.sleep(INTER_SESSION_PAUSE)
 
                 except KeyboardInterrupt:
                     await stream(
                         ws,
-                        "\nManual interrupt received (Ctrl+C). Shutting down gracefully...",
+                        {
+                            "widget": "notification",
+                            "title": "MANUAL INTERRUPT RECEIVED",
+                            "metadata": {
+                                "message": "Shutting down gracefully...",
+                                "signal": "SIGINT",
+                                "status": "info",
+                            },
+                        },
                     )
 
                 finally:
                     final_balance = await get_account_balance(client)
-                    summary_color = GREEN if grand_total_pnl >= 0 else RED
-                    header_color = GREEN if grand_total_pnl >= 0 else YELLOW
 
-                    bot_shutdown_summary = textwrap.dedent(
-                        f"""\
-                    {header_color}==================================================
-                    BOT SHUTDOWN — FINAL ALL-TIME SUMMARY
-                    =================================================={RESET}
-                    Sessions Run            : {session_num}
-                    Starting Balance        : {starting_balance:.2f} {CURRENCY}
-                    Final Balance           : {final_balance:.2f} {CURRENCY}
-                    {summary_color}All-Time Net PnL        : {grand_total_pnl:+.2f} {CURRENCY}{RESET}
-                    {header_color}=================================================={RESET}
-                    """.strip()
-                    )
+                    bot_shutdown_summary = {
+                        "widget": "bot_shutdown_summary",
+                        "title": "BOT SHUTDOWN — FINAL ALL-TIME SUMMARY",
+                        "metadata": {
+                            "sessions_run": session_num,
+                            "starting_balance": starting_balance,
+                            "final_balance": final_balance,
+                            "all_time_net_pnl": grand_total_pnl,
+                            "currency": CURRENCY,
+                            "status": (
+                                "profit"
+                                if grand_total_pnl > 0
+                                else "loss" if grand_total_pnl < 0 else "breakeven"
+                            ),
+                        },
+                    }
 
                     await stream(ws, bot_shutdown_summary)
 
@@ -414,8 +509,8 @@ async def receiver(ws: WebSocket):
 
                 await ws.send_json(
                     {
-                        "balance": 10234.56,
-                        "pl": 18.75,
+                        "balance": await get_account_balance(client),
+                        "pl": "PL: Coming soon",
                         "status": "COMMAND: Run Bot!",
                         "color": random.choice(
                             ["red", "blue", "green", "brown", "#20bebe", "orange"]
@@ -440,11 +535,14 @@ async def receiver(ws: WebSocket):
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
 
-    sender_task = asyncio.create_task(sender(ws))
+    # sender_task = asyncio.create_task(sender(ws))
     receiver_task = asyncio.create_task(receiver(ws))
 
     done, pending = await asyncio.wait(
-        [sender_task, receiver_task],
+        [
+            # sender_task,
+            receiver_task
+        ],
         return_when=asyncio.FIRST_COMPLETED,
     )
 
