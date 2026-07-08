@@ -425,7 +425,7 @@ ws.onopen = () => {
     updateRunButton(RunButtonState.INITIALIZING);
   }
   
-  setWaiting("waiting");
+  setWaiting("watching");
 };
 
 ws.onmessage = (event) => {
@@ -439,13 +439,13 @@ ws.onmessage = (event) => {
     if (data.trade_stream.pl < 0) {
       plEl.style.color = "red";
     } else {
-      plEl.style.color = "green";
+      plEl.style.color = "#1fa971";
     }
 
     if (initialBal > data.trade_stream.balance) {
       balanceEl.style.color = "red";
     } else {
-      balanceEl.style.color = "green";
+      balanceEl.style.color = "#1fa971";
     }
 
     initialBal = data.trade_stream.balance;

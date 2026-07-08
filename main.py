@@ -109,10 +109,10 @@ async def run_session(client, session_num, ws: WebSocket):
     DIRECTION_MODE = "TREND_FOLLOW"
 
     # Strategy Specific Parameters
-    INITIAL_STAKE = 10
-    MAX_STAKE = 100
-    PROFIT_THRESHOLD = 1
-    LOSS_THRESHOLD = 100
+    INITIAL_STAKE = 5  # 100 × 0.05
+    MAX_STAKE = 50  # 1000 × 0.05
+    PROFIT_THRESHOLD = 10 or 5  # 100 × 0.05
+    LOSS_THRESHOLD = 50  # 1000 × 0.05
 
     STAKE_MULTIPLIER = 2  # [Martingale] Multiplier factor on loss
     STAKE_INCREMENT = 1.0  # [D'Alembert] Unit unit scale change
@@ -328,7 +328,7 @@ async def run_session(client, session_num, ws: WebSocket):
         result_str = "WIN" if is_win else "LOSS"
         trade_result_summary = {
             "widget": "trade_result",
-            "title": f"TRADE #{trade_count} RESULT",
+            "title": f"TRADE {trade_count}",
             "balance": await get_account_balance(client),
             "pl": round(total_profit_loss, 2),
             "metadata": {
@@ -387,7 +387,7 @@ async def run_session(client, session_num, ws: WebSocket):
     final_session_balance = await get_account_balance(client)
     session_summary_report = {
         "widget": "session_summary",
-        "title": f"SESSION #{session_num} COMPLETED SUMMARY REPORT",
+        "title": f"SESSION {session_num} COMPLETED",
         "balance": await get_account_balance(client),
         "pl": round(total_profit_loss, 2),
         "metadata": {
