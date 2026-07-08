@@ -12,8 +12,6 @@ const waitingIndicator = document.getElementById("waitingIndicator");
 const waitingText = document.getElementById("waitingText");
 let streamEnded = false;
 
-
-
 // ==========================================================================
 // Run Button State Management
 // ==========================================================================
@@ -26,8 +24,8 @@ const RunButtonState = {
 };
 
 let currentRunButtonState = RunButtonState.CONNECTING;
-let isBotRunning = false; // Track bot running state independently
-let isInitializing = false; // Track initialization state
+let isBotRunning = false;
+let isInitializing = false;
 
 function updateRunButton(state, customText = null) {
   currentRunButtonState = state;
@@ -38,12 +36,10 @@ function updateRunButton(state, customText = null) {
       runBtn.textContent = "Connecting...";
       break;
     case RunButtonState.READY:
-      // Only enable if bot is NOT running and NOT initializing
       if ((!isBotRunning && !isInitializing) || streamEnded) {
         runBtn.disabled = false;
         runBtn.textContent = customText || "Run Bot";
       } else {
-        // If bot is running or initializing, keep it disabled
         runBtn.disabled = true;
         if (isBotRunning) {
           runBtn.textContent = "Bot running...";
@@ -58,7 +54,7 @@ function updateRunButton(state, customText = null) {
       runBtn.textContent = "Initializing...";
       break;
     case RunButtonState.RUNNING:
-      isInitializing = false; // Clear initializing flag when running starts
+      isInitializing = false;
       isBotRunning = true;
       runBtn.disabled = true;
       runBtn.textContent = "Bot running...";
@@ -76,13 +72,12 @@ function updateRunButton(state, customText = null) {
 }
 
 function setWaiting(state) {
-  // state: "connecting" | "watching" | "down"
   if (state === "connecting") {
     waitingIndicator.classList.remove("paused");
     waitingText.textContent = "Connecting…";
   } else if (state === "watching") {
     waitingIndicator.classList.remove("paused");
-    waitingText.textContent = "Watching for the next update…";
+    waitingText.textContent = "Thinking...";
   } else {
     waitingIndicator.classList.add("paused");
     waitingText.textContent = "Connected";
@@ -100,9 +95,7 @@ modeButtons.forEach((btn) => {
 });
 
 // ==========================================================================
-// Accent system — every status word the server sends maps to one of five
-// signal colors. This is the single source of truth for "is this good,
-// bad, cautionary, or informational".
+// Accent system
 // ==========================================================================
 const ACCENT = {
   success: "profit",
@@ -148,10 +141,6 @@ function makeBadge(text, accent) {
   return span;
 }
 
-/**
- * Prepends a rail item (dot + connecting line + card) to the feed.
- * `accent` drives both the rail dot color and the card theme.
- */
 function pushFeedItem(accent, cardEl) {
   clearEmptyState();
   if (ws.readyState === WebSocket.OPEN) setWaiting("watching");
@@ -185,10 +174,7 @@ function makeCard(title, accent, extraClass = "") {
 }
 
 // ==========================================================================
-// Widget renderers — one function per `trade_stream.widget` type, each
-// using the element that actually fits its content (definition lists for
-// key/value pairs, a badge for outcome words, a metric line for the number
-// that matters most).
+// Widget renderers
 // ==========================================================================
 const RENDERERS = {
   session_initializer(data) {
@@ -198,9 +184,9 @@ const RENDERERS = {
       makeFieldList([
         ["Risk Engine", m.risk_engine],
         ["Selection Mode", m.selection_mode],
-        ["Starting Balance", m.starting_balance],
-        ["Take Profit Goal", m.take_profit_goal],
-        ["Max Stop Loss", m.max_stop_loss],
+        ["Starting Balance", formatNumberWithCommas(m.starting_balance)],
+        ["Take Profit Goal", formatNumberWithCommas(m.take_profit_goal)],
+        ["Max Stop Loss", formatNumberWithCommas(m.max_stop_loss)],
       ])
     );
     pushFeedItem("info", card);
@@ -226,8 +212,8 @@ const RENDERERS = {
     card.appendChild(p);
     card.appendChild(
       makeFieldList([
-        ["Stake", m.stake],
-        ["Remaining Loss Budget", m.remaining_loss_budget],
+        ["Stake", formatNumberWithCommas(m.stake)],
+        ["Remaining Loss Budget", formatNumberWithCommas(m.remaining_loss_budget)],
       ])
     );
     pushFeedItem(accent, card);
@@ -242,23 +228,22 @@ const RENDERERS = {
       const card = makeCard(data.title, accent);
       card.appendChild(
         makeFieldList([
-          ["Initial Balance", `${m.initial_balance} ${m.currency}`],
-          ["Final Balance", `${m.final_balance} ${m.currency}`],
-          ["Net Delta", `${m.net_delta} ${m.currency}`],
+          ["Initial Balance", `${formatNumberWithCommas(m.initial_balance)} ${m.currency}`],
+          ["Final Balance", `${formatNumberWithCommas(m.final_balance)} ${m.currency}`],
+          ["Net Delta", `${formatNumberWithCommas(m.net_delta)} ${m.currency}`],
         ])
       );
       pushFeedItem(accent, card);
       return;
     }
 
-    // Per-trade dashboard header — informational, not a win/loss signal.
     const card = makeCard(data.title, "info", "neutral");
     card.appendChild(
       makeFieldList([
-        ["Balance Before", `${m.balance_before} ${m.currency}`],
+        ["Balance Before", `${formatNumberWithCommas(m.balance_before)} ${m.currency}`],
         ["Market Context", m.market_context],
         ["Direction", m.direction],
-        ["Stake", `${m.stake} ${m.currency}`],
+        ["Stake", `${formatNumberWithCommas(m.stake)} ${m.currency}`],
       ])
     );
     pushFeedItem("info", card);
@@ -275,13 +260,13 @@ const RENDERERS = {
     const metric = document.createElement("p");
     metric.className = `card-metric ${accent === "loss" ? "loss" : accent === "profit" ? "profit" : "neutral"}`;
     const sign = m.profit > 0 ? "+" : "";
-    metric.textContent = `${sign}${m.profit} ${m.currency}`;
+    metric.textContent = `${sign}${formatNumberWithCommas(m.profit)} ${m.currency}`;
     card.appendChild(metric);
 
     card.appendChild(
       makeFieldList([
-        ["Balance After", `${m.balance_after} ${m.currency}`],
-        ["Session Net P&L", `${m.session_net_pnl} ${m.currency}`],
+        ["Balance After", `${formatNumberWithCommas(m.balance_after)} ${m.currency}`],
+        ["Session Net P&L", `${formatNumberWithCommas(m.session_net_pnl)} ${m.currency}`],
       ])
     );
     pushFeedItem(accent, card);
@@ -297,8 +282,8 @@ const RENDERERS = {
     card.appendChild(p);
     card.appendChild(
       makeFieldList([
-        ["Current Stake", m.stake],
-        ["Maximum Allowed Stake", m.max_stake],
+        ["Current Stake", formatNumberWithCommas(m.stake)],
+        ["Maximum Allowed Stake", formatNumberWithCommas(m.max_stake)],
       ])
     );
     pushFeedItem(accent, card);
@@ -310,9 +295,9 @@ const RENDERERS = {
     const card = makeCard(data.title, accent);
     card.appendChild(
       makeFieldList([
-        ["Starting Balance", `${m.starting_balance} ${m.currency}`],
-        ["Current Balance", `${m.current_balance} ${m.currency}`],
-        ["Cumulative Net P&L", `${m.cumulative_net_pnl} ${m.currency}`],
+        ["Starting Balance", `${formatNumberWithCommas(m.starting_balance)} ${m.currency}`],
+        ["Current Balance", `${formatNumberWithCommas(m.current_balance)} ${m.currency}`],
+        ["Cumulative Net P&L", `${formatNumberWithCommas(m.cumulative_net_pnl)} ${m.currency}`],
       ])
     );
     pushFeedItem(accent, card);
@@ -343,9 +328,9 @@ const RENDERERS = {
     card.appendChild(
       makeFieldList([
         ["Sessions Run", m.sessions_run],
-        ["Starting Balance", `${m.starting_balance} ${m.currency}`],
-        ["Final Balance", `${m.final_balance} ${m.currency}`],
-        ["All-Time Net P&L", `${m.all_time_net_pnl} ${m.currency}`],
+        ["Starting Balance", `${formatNumberWithCommas(m.starting_balance)} ${m.currency}`],
+        ["Final Balance", `${formatNumberWithCommas(m.final_balance)} ${m.currency}`],
+        ["All-Time Net P&L", `${formatNumberWithCommas(m.all_time_net_pnl)} ${m.currency}`],
       ])
     );
     pushFeedItem("gold", card);
@@ -358,7 +343,7 @@ function renderTradeStream(ts) {
 }
 
 // ==========================================================================
-// Plain system log lines (connection acks, non-widget status strings)
+// Plain system log lines
 // ==========================================================================
 function pushLogLine(text, color) {
   clearEmptyState();
@@ -370,32 +355,268 @@ function pushLogLine(text, color) {
 }
 
 // ==========================================================================
+// Format numbers to 2 decimal places with commas
+// ==========================================================================
+function formatNumberWithCommas(value) {
+  if (value === undefined || value === null) return "0.00";
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return "0.00";
+  
+  // Format with commas and 2 decimal places
+  const parts = num.toFixed(2).split('.');
+  const integerPart = parts[0];
+  const decimalPart = parts[1];
+  
+  // Add commas to integer part
+  const withCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  
+  return `${withCommas}.${decimalPart}`;
+}
+
+function formatNumber(value) {
+  if (value === undefined || value === null) return "0.00";
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return "0.00";
+  return num.toFixed(2);
+}
+
+function formatPL(value) {
+  if (value === undefined || value === null) return "+0.00";
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return "+0.00";
+  const formatted = Math.abs(num).toFixed(2);
+  return num >= 0 ? `+${formatted}` : `-${formatted}`;
+}
+
+// ==========================================================================
+// Skeleton loader helpers
+// ==========================================================================
+function showSkeleton(element, type = 'number') {
+  if (!element) return;
+  element.classList.add('skeleton');
+  if (type === 'number') {
+    element.classList.add('skeleton-number');
+  } else {
+    element.classList.add('skeleton-text');
+  }
+  element.textContent = 'Loading...';
+}
+
+function hideSkeleton(element) {
+  if (!element) return;
+  element.classList.remove('skeleton', 'skeleton-number', 'skeleton-text');
+}
+
+// ==========================================================================
+// Update balance and PL display
+// ==========================================================================
+function updateBalanceAndPL(balance, pl) {
+  if (balance !== undefined && balance !== null) {
+    const balanceNum = typeof balance === 'string' ? parseFloat(balance) : balance;
+    if (!isNaN(balanceNum)) {
+      hideSkeleton(balanceEl);
+      balanceEl.textContent = formatNumberWithCommas(balanceNum);
+      
+      // Update balance color based on change from initial
+      if (initialBal !== 0 && balanceNum < initialBal) {
+        balanceEl.style.color = "red";
+      } else {
+        balanceEl.style.color = "#1fa971";
+      }
+    }
+  }
+  
+  if (pl !== undefined && pl !== null) {
+    const plNum = typeof pl === 'string' ? parseFloat(pl) : pl;
+    if (!isNaN(plNum)) {
+      hideSkeleton(plEl);
+      plEl.textContent = formatPL(plNum);
+      
+      // Update PL color
+      if (plNum < 0) {
+        plEl.style.color = "red";
+        plEl.classList.remove("pl-positive");
+        plEl.classList.add("pl-negative");
+      } else {
+        plEl.style.color = "#1fa971";
+        plEl.classList.remove("pl-negative");
+        plEl.classList.add("pl-positive");
+      }
+    }
+  }
+}
+
+// ==========================================================================
+// Update connection indicators
+// ==========================================================================
+function updateConnectionIndicators(connected) {
+  if (connected) {
+    connDot.classList.remove("down");
+    connDot.classList.add("live");
+    connLabel.textContent = "Connected";
+    setWaiting("watching");
+  } else {
+    connDot.classList.remove("live");
+    connDot.classList.add("down");
+    connLabel.textContent = "Disconnected";
+    setWaiting("down");
+  }
+}
+
+// ==========================================================================
+// Request initial balance
+// ==========================================================================
+function requestInitialBalance() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      action: "get_balance"
+    }));
+  }
+}
+
+// ==========================================================================
 // WebSocket wiring
 // ==========================================================================
 const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
-// Initialize button in connecting state
+// Initialize UI
 updateRunButton(RunButtonState.CONNECTING);
-let initialBal = 0
-document.addEventListener('DOMContentLoaded', function() {
-    // Check if WebSocket is already open when page loads
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            action: "get_balance"
-        }));
-    } else {
-        // If WebSocket is not open yet, wait for it to open
-        ws.onopen = function() {
-            ws.send(JSON.stringify({
-                action: "get_balance"
-            }));
-        };
-    }
-});
+setWaiting("connecting");
+let initialBal = 0;
 
+// Force initial connection dot state to show "connecting"
+connDot.classList.remove("live");
+connDot.classList.add("down");
+connLabel.textContent = "Connecting...";
+
+// Set initial balance and PL to show skeleton loaders
+showSkeleton(balanceEl, 'number');
+showSkeleton(plEl, 'number');
+
+// Handle WebSocket open event
+ws.onopen = () => {
+  // Update connection indicators
+  updateConnectionIndicators(true);
+  
+  // Request initial balance immediately on connection
+  requestInitialBalance();
+  
+  // Update button state
+  if (!isBotRunning && !isInitializing) {
+    updateRunButton(RunButtonState.READY);
+  } else if (isBotRunning) {
+    updateRunButton(RunButtonState.RUNNING);
+  } else if (isInitializing) {
+    updateRunButton(RunButtonState.INITIALIZING);
+  }
+};
+
+// Handle WebSocket messages
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  // Handle balance and PL updates from trade_stream
+  if (data.trade_stream) {
+    // Update balance if present
+    if (data.trade_stream.balance !== undefined) {
+      const balance = data.trade_stream.balance;
+      const pl = data.trade_stream.pl !== undefined ? data.trade_stream.pl : 0;
+      
+      // Store initial balance if not set
+      if (initialBal === 0 && balance !== undefined) {
+        initialBal = typeof balance === 'string' ? parseFloat(balance) : balance;
+      }
+      
+      updateBalanceAndPL(balance, pl);
+    }
+    
+    // Render the trade stream
+    renderTradeStream(data.trade_stream);
+    
+    // Check for end of stream
+    if (data.trade_stream.end_of_stream) {
+      waitingText.textContent = "Trade Completed";
+      waitingIndicator.classList.add("paused");
+      streamEnded = true;
+      updateRunButton(RunButtonState.READY);
+    } else {
+      streamEnded = false;
+    }
+  }
+  
+  // Handle separate balance update response (from get_balance action)
+  if (data.balance !== undefined || data.pl !== undefined) {
+    const balance = data.balance;
+    const pl = data.pl !== undefined ? data.pl : 0;
+    
+    if (balance !== undefined && initialBal === 0) {
+      initialBal = typeof balance === 'string' ? parseFloat(balance) : balance;
+    }
+    
+    updateBalanceAndPL(balance, pl);
+  }
+
+  // Check if bot is running
+  if (data.bot && data.bot.running) {
+    isBotRunning = true;
+    isInitializing = false;
+    updateRunButton(RunButtonState.RUNNING);
+  } else if (data.trade_stream && data.trade_stream.bot && data.trade_stream.bot.running) {
+    isBotRunning = true;
+    isInitializing = false;
+    updateRunButton(RunButtonState.RUNNING);
+  } else {
+    // Only update if bot state changes
+    const wasRunning = isBotRunning;
+    isBotRunning = false;
+    
+    // Reset button state if it was running and we got a non-running response
+    if (wasRunning && !data.bot?.running && !data.trade_stream?.bot?.running) {
+      if (currentRunButtonState !== RunButtonState.CONNECTING && 
+          currentRunButtonState !== RunButtonState.CLOSED &&
+          !isInitializing) {
+        updateRunButton(RunButtonState.READY);
+      }
+    }
+  }
+
+  // Handle status messages
+  if (data.status) {
+    pushLogLine(data.status, data.color);
+  }
+};
+
+// Handle WebSocket close
+ws.onclose = (event) => {
+  updateConnectionIndicators(false);
+  
+  isBotRunning = false;
+  isInitializing = false;
+  
+  updateRunButton(RunButtonState.CLOSED);
+  
+  // Show skeleton loaders when disconnected
+  showSkeleton(balanceEl, 'number');
+  showSkeleton(plEl, 'number');
+};
+
+// Handle WebSocket error
+ws.onerror = () => {
+  updateConnectionIndicators(false);
+  
+  isBotRunning = false;
+  isInitializing = false;
+  
+  updateRunButton(RunButtonState.CLOSED);
+  
+  // Show skeleton loaders when disconnected
+  showSkeleton(balanceEl, 'number');
+  showSkeleton(plEl, 'number');
+};
+
+// Run button click handler
 runBtn.onclick = () => {
   if (ws.readyState !== WebSocket.OPEN) {
-    // Should not happen as button should be disabled, but guard anyway
     return;
   }
   
@@ -409,133 +630,7 @@ runBtn.onclick = () => {
   );
 };
 
-ws.onopen = () => {
-  connDot.classList.remove("down");
-  connDot.classList.add("live");
-  connLabel.textContent = "Connected";
-  
-  // Only set to READY if bot is NOT running and NOT initializing
-  if (!isBotRunning && !isInitializing) {
-    updateRunButton(RunButtonState.READY);
-  } else if (isBotRunning) {
-    // Bot is running, keep it in RUNNING state
-    updateRunButton(RunButtonState.RUNNING);
-  } else if (isInitializing) {
-    // Still initializing, keep it in INITIALIZING state
-    updateRunButton(RunButtonState.INITIALIZING);
-  }
-  
-  setWaiting("watching");
-};
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  
-  
-
-  if (data.trade_stream && data.trade_stream.balance || data.trade_stream && data.trade_stream.pl) {
-    balanceEl.textContent = data.trade_stream.balance;
-    plEl.textContent = data.trade_stream.pl || "+0.00";
-    if (data.trade_stream.pl < 0) {
-      plEl.style.color = "red";
-    } else {
-      plEl.style.color = "#1fa971";
-    }
-
-    if (initialBal > data.trade_stream.balance) {
-      balanceEl.style.color = "red";
-    } else {
-      balanceEl.style.color = "#1fa971";
-    }
-
-    initialBal = data.trade_stream.balance;
-
-
-
-  }
-
-  // Check if bot is running - this takes priority over all other states
-  if (data.bot && data.bot.running || data.trade_stream && data.trade_stream.bot.running) {
-    isBotRunning = true;
-    isInitializing = false; // Clear initializing flag when bot starts running
-    updateRunButton(RunButtonState.RUNNING);
-  } else {
-    // Bot is not running
-    isBotRunning = false;
-    // Only reset to READY if we're not in CONNECTING or CLOSED state
-    // and we're not currently initializing
-    if (currentRunButtonState !== RunButtonState.CONNECTING && 
-        currentRunButtonState !== RunButtonState.CLOSED &&
-        !isInitializing) {
-      updateRunButton(RunButtonState.READY);
-    } else if (isInitializing) {
-      // Keep it in INITIALIZING state
-      updateRunButton(RunButtonState.INITIALIZING);
-    }
-  }
-
-  
-
-
-
-  if (data.balance !== undefined && data.pl !== undefined) {
-    initialBal = data.balance;
-    balanceEl.textContent = data.balance;
-    plEl.textContent = data.pl;
-    plEl.classList.remove("pl-positive", "pl-negative");
-    const numeric = parseFloat(data.pl);
-    if (!Number.isNaN(numeric)) {
-      plEl.classList.add(numeric >= 0 ? "pl-positive" : "pl-negative");
-    }
-  }
-
-  if (data.status) {
-    pushLogLine(data.status, data.color);
-  }
-
-  if (data.trade_stream) {
-    renderTradeStream(data.trade_stream);
-  }
-
-  if (data.trade_stream && data.trade_stream.end_of_stream) {
-    waitingText.textContent = "Trade Completed";
-    waitingIndicator.classList.add("paused");
-    streamEnded = true;
-    updateRunButton(RunButtonState.READY);
-
-  } else {
-    // reset stream ended
-    streamEnded = false;
-  }
-};
-
-ws.onclose = (event) => {
-  connDot.classList.remove("live");
-  connDot.classList.add("down");
-  connLabel.textContent = "Disconnected";
-  
-  // Reset bot running and initializing flags when connection closes
-  isBotRunning = false;
-  isInitializing = false;
-  
-  // When connection closes, button should always be disabled and show "Connection closed"
-  updateRunButton(RunButtonState.CLOSED);
-  setWaiting("down");
-};
-
-ws.onerror = () => {
-  connDot.classList.remove("live");
-  connDot.classList.add("down");
-  connLabel.textContent = "Connection error";
-  
-  // Reset bot running and initializing flags on error
-  isBotRunning = false;
-  isInitializing = false;
-  
-  updateRunButton(RunButtonState.CLOSED);
-  setWaiting("down");
-};
-
+// Handle page unload
 window.addEventListener("pagehide", () => {
   if (ws.readyState === WebSocket.OPEN) ws.close(1000, "Page unloaded");
 });
@@ -543,3 +638,12 @@ window.addEventListener("pagehide", () => {
 window.addEventListener("beforeunload", () => {
   if (ws.readyState === WebSocket.OPEN) ws.close(1000, "Page unloading");
 });
+
+// If WebSocket is already open when this script loads, request balance immediately
+if (ws.readyState === WebSocket.OPEN) {
+  updateConnectionIndicators(true);
+  requestInitialBalance();
+  if (!isBotRunning && !isInitializing) {
+    updateRunButton(RunButtonState.READY);
+  }
+}

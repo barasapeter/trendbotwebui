@@ -22,7 +22,7 @@
 
         <section class="readout" aria-label="Account readout">
             <div class="readout-cell">
-                <span class="readout-label">Balance</span>
+                <span class="readout-label">Balance USD</span>
                 <span class="readout-value" id="balance">
                     {% if balance is none %}
                         <em style="font-size: 16px;">Fetching...</em>
@@ -32,7 +32,7 @@
                 </span>
             </div>
             <div class="readout-cell">
-                <span class="readout-label">Session P&amp;L</span>
+                <span class="readout-label">Session P&amp;L USD</span>
                 <span class="readout-value" id="PL">
                     {% if PL is none %}
                         <em style="font-size: 16px;">Fetching...</em>
