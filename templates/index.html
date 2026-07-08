@@ -83,8 +83,11 @@
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
 
-            document.getElementById("balance").textContent = data.balance;
-            document.getElementById("PL").textContent = data.pl;
+            if (data.balance && data.pl) {
+                document.getElementById("balance").textContent = data.balance;
+                document.getElementById("PL").textContent = data.pl;
+            }
+            
 
             const p = document.createElement("p");
             p.style.color = data.color;
@@ -94,6 +97,342 @@
 
             if (data.trade_stream) {
                 console.log(data.trade_stream);
+
+                if (data.trade_stream.widget === "session_initializer") {
+
+                    const sessionInitializerDiv = document.createElement("div");
+                    sessionInitializerDiv.className = "session-initializer";
+
+                    const sessionInitializerTitle = document.createElement("h2");
+                    sessionInitializerTitle.textContent = data.trade_stream.title;
+                    sessionInitializerDiv.appendChild(sessionInitializerTitle);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const fields = [
+                        ["Risk Engine", metadata.risk_engine],
+                        ["Selection Mode", metadata.selection_mode],
+                        ["Starting Balance", metadata.starting_balance],
+                        ["Take Profit Goal", metadata.take_profit_goal],
+                        ["Max Stop Loss", metadata.max_stop_loss],
+                    ];
+
+                    fields.forEach(([label, value]) => {
+                        const row = document.createElement("p");
+
+                        const strong = document.createElement("strong");
+                        strong.textContent = `${label}: `;
+
+                        row.appendChild(strong);
+                        row.append(value);
+
+                        sessionInitializerDiv.appendChild(row);
+                    });
+
+                    output.prepend(sessionInitializerDiv);
+                }
+
+                if (data.trade_stream.widget === "snackbar") {
+
+                    const snackbar = document.createElement("div");
+                    snackbar.className = `snackbar ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h3");
+                    title.textContent = data.trade_stream.title;
+
+                    const message = document.createElement("p");
+                    message.textContent = data.trade_stream.metadata.message;
+
+                    snackbar.appendChild(title);
+                    snackbar.appendChild(message);
+
+                    output.prepend(snackbar);
+                }
+
+                if (data.trade_stream.widget === "detailed_snackbar") {
+
+                    const snackbar = document.createElement("div");
+                    snackbar.className = `snackbar detailed ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h3");
+                    title.textContent = data.trade_stream.title;
+
+                    const message = document.createElement("p");
+                    message.textContent = data.trade_stream.metadata.message;
+
+                    const stake = document.createElement("p");
+                    stake.innerHTML = `<strong>Stake:</strong> ${data.trade_stream.metadata.stake}`;
+
+                    const remainingBudget = document.createElement("p");
+                    remainingBudget.innerHTML =
+                        `<strong>Remaining Loss Budget:</strong> ${data.trade_stream.metadata.remaining_loss_budget}`;
+
+                    snackbar.appendChild(title);
+                    snackbar.appendChild(message);
+                    snackbar.appendChild(stake);
+                    snackbar.appendChild(remainingBudget);
+
+                    output.prepend(snackbar);
+                }
+
+                if (data.trade_stream.widget === "session_summary") {
+
+                    const summary = document.createElement("div");
+                    summary.className = "session-summary";
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+
+                    summary.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const fields = [
+                        ["Balance Before", `${metadata.balance_before} ${metadata.currency}`],
+                        ["Market Context", metadata.market_context],
+                        ["Direction", metadata.direction],
+                        ["Stake", `${metadata.stake} ${metadata.currency}`],
+                    ];
+
+                    fields.forEach(([label, value]) => {
+                        const row = document.createElement("p");
+
+                        const strong = document.createElement("strong");
+                        strong.textContent = `${label}: `;
+
+                        row.appendChild(strong);
+                        row.append(value);
+
+                        summary.appendChild(row);
+                    });
+
+                    output.prepend(summary);
+                }
+
+                if (data.trade_stream.widget === "trade_result") {
+
+                    const result = document.createElement("div");
+                    result.className = `trade-result ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+
+                    result.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const fields = [
+                        ["Outcome", metadata.outcome],
+                        ["Profit", `${metadata.profit} ${metadata.currency}`],
+                        ["Balance After", `${metadata.balance_after} ${metadata.currency}`],
+                        ["Session Net P&L", `${metadata.session_net_pnl} ${metadata.currency}`],
+                    ];
+
+                    fields.forEach(([label, value]) => {
+                        const row = document.createElement("p");
+
+                        const strong = document.createElement("strong");
+                        strong.textContent = `${label}: `;
+
+                        row.appendChild(strong);
+                        row.append(value);
+
+                        result.appendChild(row);
+                    });
+
+                    output.prepend(result);
+                }
+
+                if (data.trade_stream.widget === "risk_alert") {
+
+                    const alert = document.createElement("div");
+                    alert.className = `risk-alert ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+
+                    alert.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const message = document.createElement("p");
+                    message.textContent = metadata.message;
+                    alert.appendChild(message);
+
+                    const fields = [
+                        ["Current Stake", metadata.stake],
+                        ["Maximum Allowed Stake", metadata.max_stake],
+                    ];
+
+                    fields.forEach(([label, value]) => {
+                        const row = document.createElement("p");
+
+                        const strong = document.createElement("strong");
+                        strong.textContent = `${label}: `;
+
+                        row.appendChild(strong);
+                        row.append(value);
+
+                        alert.appendChild(row);
+                    });
+
+                    output.prepend(alert);
+                }
+
+                if (data.trade_stream.widget === "session_summary" &&
+                    data.trade_stream.metadata.initial_balance !== undefined) {
+
+                    const summary = document.createElement("div");
+                    summary.className = `session-summary ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+
+                    summary.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const fields = [
+                        ["Initial Balance", `${metadata.initial_balance} ${metadata.currency}`],
+                        ["Final Balance", `${metadata.final_balance} ${metadata.currency}`],
+                        ["Net Delta", `${metadata.net_delta} ${metadata.currency}`],
+                    ];
+
+                    fields.forEach(([label, value]) => {
+                        const row = document.createElement("p");
+
+                        const strong = document.createElement("strong");
+                        strong.textContent = `${label}: `;
+
+                        row.appendChild(strong);
+                        row.append(value);
+
+                        summary.appendChild(row);
+                    });
+
+                    output.prepend(summary);
+                }
+
+                if (data.trade_stream.widget === "cumulative_status") {
+
+                    const status = document.createElement("div");
+                    status.className = `cumulative-status ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+
+                    status.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const fields = [
+                        ["Starting Balance", `${metadata.starting_balance} ${metadata.currency}`],
+                        ["Current Balance", `${metadata.current_balance} ${metadata.currency}`],
+                        ["Cumulative Net P&L", `${metadata.cumulative_net_pnl} ${metadata.currency}`],
+                    ];
+
+                    fields.forEach(([label, value]) => {
+                        const row = document.createElement("p");
+
+                        const strong = document.createElement("strong");
+                        strong.textContent = `${label}: `;
+
+                        row.appendChild(strong);
+                        row.append(value);
+
+                        status.appendChild(row);
+                    });
+
+                    output.prepend(status);
+                }
+
+                if (data.trade_stream.widget === "notification") {
+
+                    const notification = document.createElement("div");
+                    notification.className = `notification ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+
+                    notification.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const message = document.createElement("p");
+                    message.textContent = metadata.message;
+                    notification.appendChild(message);
+
+                    const duration = document.createElement("p");
+                    duration.innerHTML = `<strong>Duration:</strong> ${metadata.duration_seconds} seconds`;
+
+                    notification.appendChild(duration);
+
+                    output.prepend(notification);
+                }
+
+                if (data.trade_stream.widget === "notification") {
+
+                    const notification = document.createElement("div");
+                    notification.className = `notification ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+                    notification.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const message = document.createElement("p");
+                    message.textContent = metadata.message;
+                    notification.appendChild(message);
+
+                    if (metadata.duration_seconds !== undefined) {
+                        const duration = document.createElement("p");
+                        duration.innerHTML = `<strong>Duration:</strong> ${metadata.duration_seconds} seconds`;
+                        notification.appendChild(duration);
+                    }
+
+                    if (metadata.signal !== undefined) {
+                        const signal = document.createElement("p");
+                        signal.innerHTML = `<strong>Signal:</strong> ${metadata.signal}`;
+                        notification.appendChild(signal);
+                    }
+
+                    output.prepend(notification);
+                }
+
+                if (data.trade_stream.widget === "bot_shutdown_summary") {
+
+                    const summary = document.createElement("div");
+                    summary.className = `bot-shutdown-summary ${data.trade_stream.metadata.status}`;
+
+                    const title = document.createElement("h2");
+                    title.textContent = data.trade_stream.title;
+
+                    summary.appendChild(title);
+
+                    const metadata = data.trade_stream.metadata;
+
+                    const fields = [
+                        ["Sessions Run", metadata.sessions_run],
+                        ["Starting Balance", `${metadata.starting_balance} ${metadata.currency}`],
+                        ["Final Balance", `${metadata.final_balance} ${metadata.currency}`],
+                        ["All-Time Net P&L", `${metadata.all_time_net_pnl} ${metadata.currency}`],
+                    ];
+
+                    fields.forEach(([label, value]) => {
+                        const row = document.createElement("p");
+
+                        const strong = document.createElement("strong");
+                        strong.textContent = `${label}: `;
+
+                        row.appendChild(strong);
+                        row.append(value);
+
+                        summary.appendChild(row);
+                    });
+
+                    output.prepend(summary);
+                }
             }
         };
 

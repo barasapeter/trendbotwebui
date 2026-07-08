@@ -8,7 +8,6 @@ import random
 from client import DerivClient
 from auth import get_ws_url
 import math
-import textwrap
 
 app = FastAPI()
 
@@ -112,7 +111,7 @@ async def run_session(client, session_num, ws: WebSocket):
     # Strategy Specific Parameters
     INITIAL_STAKE = 10
     MAX_STAKE = 100
-    PROFIT_THRESHOLD = 20
+    PROFIT_THRESHOLD = 1
     LOSS_THRESHOLD = 100
 
     STAKE_MULTIPLIER = 2  # [Martingale] Multiplier factor on loss
@@ -420,8 +419,22 @@ async def receiver(ws: WebSocket):
             action = data.get("action")
 
             if action == "run_bot":
+                await ws.send_json(
+                    {
+                        "message": "acknowledgement",
+                        "status": "Connecting to Deriv servers...",
+                    }
+                )
                 client = DerivClient(ws_url=get_ws_url(account_type="demo"))
                 await client.connect()
+
+                await ws.send_json(
+                    {
+                        "balance": await get_account_balance(client),
+                        "pl": 0.00,
+                        "status": "Connected! Initializing trades...",
+                    }
+                )
 
                 grand_total_pnl = 0.0
                 session_num = 0
