@@ -126,7 +126,7 @@ async def run_session(client, session_num, ws: WebSocket):
 
     session_initializer = {
         "widget": "session_initializer",
-        "title": f"SESSION {session_num} out of {MAX_SESSIONS} INITIALIZING",
+        "title": f"SESSION {session_num} OF {MAX_SESSIONS} INITIALIZING",
         "balance": await get_account_balance(client),
         "metadata": {
             "risk_engine": STRATEGY_TYPE,
@@ -230,7 +230,7 @@ async def run_session(client, session_num, ws: WebSocket):
         # Clean Logging Interface (Per-Trade Metrics Dashboard)
         session_summary = {
             "widget": "session_summary",
-            "title": f"SESSION {session_num} out of {MAX_SESSIONS} | TRADE {trade_count} DASHBOARD",
+            "title": f"SESSION {session_num} OF {MAX_SESSIONS} T{trade_count}",
             "balance": await get_account_balance(client),
             "metadata": {
                 "balance_before": balance_before_trade,
@@ -501,7 +501,7 @@ async def receiver(ws: WebSocket):
 
                         bot_shutdown_summary = {
                             "widget": "bot_shutdown_summary",
-                            "title": "BOT SHUTDOWN FINAL ALL-TIME SUMMARY",
+                            "title": "BOT SHUTDOWN FINAL SUMMARY",
                             "balance": final_balance,
                             "end_of_stream": True,
                             "metadata": {
