@@ -12,6 +12,8 @@ const waitingIndicator = document.getElementById("waitingIndicator");
 const waitingText = document.getElementById("waitingText");
 let streamEnded = false;
 
+
+
 // ==========================================================================
 // Run Button State Management
 // ==========================================================================
@@ -83,7 +85,7 @@ function setWaiting(state) {
     waitingText.textContent = "Watching for the next update…";
   } else {
     waitingIndicator.classList.add("paused");
-    waitingText.textContent = "Disconnected — reconnect to resume";
+    waitingText.textContent = "Connected";
   }
 }
 
@@ -407,7 +409,7 @@ ws.onopen = () => {
     updateRunButton(RunButtonState.INITIALIZING);
   }
   
-  setWaiting("watching");
+  setWaiting("waiting");
 };
 
 ws.onmessage = (event) => {

@@ -209,7 +209,7 @@ async def run_session(client, session_num, ws: WebSocket):
                     "title": "NO LOSS BUDGET REMAINS",
                     "balance": await get_account_balance(client),
                     "metadata": {
-                        "message": "No loss budget remains — ending session now.",
+                        "message": "No loss budget remains - ending session now.",
                         "status": "warning",
                     },
                 }
