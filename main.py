@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,34 +26,17 @@ async def home(request: Request):
 
 async def sender(ws: WebSocket):
     count = 0
-    while True:
-        await asyncio.sleep(4.0)
-        count += 1
-        await ws.send_json(
-            {
-                "balance": 10234.56,
-                "pl": 18.75,
-                "status": f"OK, websocket running [{count}]",
-                "color": random.choice(
-                    ["red", "blue", "green", "brown", "#20bebe", "orange"]
-                ),
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
 
+    try:
+        while True:
+            await asyncio.sleep(4)
+            count += 1
 
-async def receiver(ws: WebSocket):
-    while True:
-        data = await ws.receive_json()
-
-        action = data.get("action")
-
-        if action == "run_bot":
             await ws.send_json(
                 {
                     "balance": 10234.56,
                     "pl": 18.75,
-                    "status": "COMMAND: Run Bot!",
+                    "status": f"OK, websocket running [{count}]",
                     "color": random.choice(
                         ["red", "blue", "green", "brown", "#20bebe", "orange"]
                     ),
@@ -61,18 +44,58 @@ async def receiver(ws: WebSocket):
                 }
             )
 
-        elif action == "stop_bot":
-            print("Stopping bot...")
+    except (WebSocketDisconnect, RuntimeError):
+        print("Sender stopped.")
+    except asyncio.CancelledError:
+        print("Sender cancelled.")
+        raise
 
-        elif action == "change_stake":
-            print("New stake:", data["stake"])
 
-        elif action == "switch_account":
-            print("Account:", data["account"])
+async def receiver(ws: WebSocket):
+    try:
+        while True:
+            data = await ws.receive_json()
+
+            action = data.get("action")
+
+            if action == "run_bot":
+                await ws.send_json(
+                    {
+                        "balance": 10234.56,
+                        "pl": 18.75,
+                        "status": "COMMAND: Run Bot!",
+                        "color": random.choice(
+                            ["red", "blue", "green", "brown", "#20bebe", "orange"]
+                        ),
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+
+            elif action == "stop_bot":
+                print("Stopping bot...")
+
+            elif action == "change_stake":
+                print("New stake:", data["stake"])
+
+            elif action == "switch_account":
+                print("Account:", data["account"])
+    except WebSocketDisconnect:
+        print("Client disconnected.")
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
 
-    await asyncio.gather(sender(ws), receiver(ws))
+    sender_task = asyncio.create_task(sender(ws))
+    receiver_task = asyncio.create_task(receiver(ws))
+
+    done, pending = await asyncio.wait(
+        [sender_task, receiver_task],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    for task in pending:
+        task.cancel()
+
+    await asyncio.gather(*pending, return_exceptions=True)

@@ -10,11 +10,11 @@
 <body>
 
     <div class="balance">
-        <h1 id="balance">{{ balance or "Balance Real Time" }}</h1>
+        <h1 id="balance">{{ balance or "Balance loading..." }}</h1>
     </div>
 
     <div class="pl">
-        <h1 id="PL">{{ PL or "Overall PL Real Time" }}</h1>
+        <h1 id="PL">{{ PL or "PL loading..." }}</h1>
     </div>
 
     <button>Settings</button>
@@ -29,6 +29,7 @@
     </div>
 
     <div class="main-controls">
+        <br>
         <button id="runBtn">Run Bot</button>
     </div>
 
@@ -46,6 +47,7 @@
     </div>
 
     <script src="/static/js/script.js"></script>
+    
     <script>
         const output = document.getElementById("sample");
 
@@ -76,9 +78,21 @@
             console.log("Connected");
         };
 
-        ws.onclose = () => {
-            console.log("Disconnected");
+        ws.onclose = (event) => {
+            console.log("Disconnected", event.code, event.reason);
         };
+
+        window.addEventListener("pagehide", () => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.close(1000, "Page unloaded");
+            }
+        });
+
+        window.addEventListener("beforeunload", () => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.close(1000, "Page unloading");
+            }
+        });
     </script>
 </body>
 </html>
