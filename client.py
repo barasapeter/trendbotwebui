@@ -1,7 +1,7 @@
 """deriv_client.py"""
 
 import json
-import websockets 
+import websockets
 
 
 class DerivClient:
