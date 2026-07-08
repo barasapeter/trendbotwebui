@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <div class="balance">
+        <h1 id="balance">{{ balance or "Balance Real Time" }}</h1>
+    </div>
+
+    <div class="pl">
+        <h1 id="PL">{{ PL or "Overall PL Real Time" }}</h1>
+    </div>
+
+    <button>Settings</button>
+
+    <div class="graph">
+        Graph goes here...
+    </div>
+
+    <div class="mode">
+        <button>Demo</button>
+        <button>Real</button>
+    </div>
+
+    <div class="main-controls">
+        <button>
+            Run Bot
+        </button>
+    </div>
+
+    <div class="toast">
+        Toast messages here...
+    </div>
+
+    <div class="trade-logs">
+        <div class="log">
+            Dynamic trade logs showing stake and trade PL
+        </div>
+
+        <div id="sample"></div>
+
+    </div>
+
+    <script src="/static/js/script.js"></script>
+    <script>
+        const output = document.getElementById("sample");
+
+        const ws = new WebSocket("ws://localhost:8000/ws");
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            document.getElementById("balance").textContent = data.balance;
+            document.getElementById("PL").textContent = data.pl;
+
+            const p = document.createElement("p");
+            p.textContent = data.status;
+
+            output.appendChild(p);
+        };
+
+        ws.onopen = () => {
+            console.log("Connected");
+        };
+
+        ws.onclose = () => {
+            console.log("Disconnected");
+        };
+    </script>
+</body>
+</html>

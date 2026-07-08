@@ -1,7 +1,7 @@
 """deriv_client.py"""
 
 import json
-import websockets
+import websockets 
 
 
 class DerivClient:
@@ -12,19 +12,23 @@ class DerivClient:
 
     async def connect(self):
         self.ws = await websockets.connect(self.ws_url)
+        print("Connected")
 
     async def subscribe(self, payload):
         payload["req_id"] = self.req_id
         self.req_id += 1
+
         await self.ws.send(json.dumps(payload))
 
     async def send(self, payload):
         payload["req_id"] = self.req_id
         self.req_id += 1
+
         await self.ws.send(json.dumps(payload))
 
         while True:
             message = json.loads(await self.ws.recv())
+
             if message.get("req_id") == payload["req_id"]:
                 return message
 
@@ -32,5 +36,4 @@ class DerivClient:
         return json.loads(await self.ws.recv())
 
     async def close(self):
-        if self.ws is not None:
-            await self.ws.close()
+        await self.ws.close()

@@ -1,15 +1,9 @@
-"""auth.py
-
-Unchanged in spirit from the original CLI version: credentials still come
-from the server's environment (.env). The FastAPI server is the one process
-holding the Deriv API token — clients only ever send trade *configuration*
-over the websocket, never credentials.
-"""
+"""auth.py"""
 
 import os
 from dotenv import load_dotenv
 import requests
-
+ 
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
@@ -21,11 +15,10 @@ HEADERS = {
 }
 
 
-def get_ws_url(account_type: str) -> str:
+def get_ws_url(account_type):
     get_app_id_response = requests.get(
         "https://api.derivws.com/trading/v1/options/accounts", headers=HEADERS
     )
-    get_app_id_response.raise_for_status()
 
     apps = get_app_id_response.json()
     app_id = None
@@ -40,7 +33,9 @@ def get_ws_url(account_type: str) -> str:
         f"https://api.derivws.com/trading/v1/options/accounts/{app_id}/otp",
         headers=HEADERS,
     )
-    get_ws_url_response.raise_for_status()
 
     data = get_ws_url_response.json()
-    return data["data"]["url"]
+
+    WS_URL = data["data"]["url"]
+
+    return WS_URL
