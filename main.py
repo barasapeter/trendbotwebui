@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import asyncio
 from datetime import datetime
-
+import random
 
 app = FastAPI()
 
@@ -24,22 +24,44 @@ async def home(request: Request):
     )
 
 
+async def sender(ws: WebSocket):
+    while True:
+        await asyncio.sleep(1.0)
+
+        await ws.send_json(
+            {
+                "balance": 10234.56,
+                "pl": 18.75,
+                "status": "OK, websocket running",
+                "color": random.choice(
+                    ["red", "blue", "green", "brown", "#20bebe", "orange"]
+                ),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+
+async def receiver(ws: WebSocket):
+    while True:
+        data = await ws.receive_json()
+
+        action = data.get("action")
+
+        if action == "run_bot":
+            await ws.send_json({"status": "Running bot..."})
+
+        elif action == "stop_bot":
+            print("Stopping bot...")
+
+        elif action == "change_stake":
+            print("New stake:", data["stake"])
+
+        elif action == "switch_account":
+            print("Account:", data["account"])
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
 
-    try:
-        while True:
-            await asyncio.sleep(0.5)
-
-            await ws.send_json(
-                {
-                    "balance": 10234.56,
-                    "pl": 18.75,
-                    "status": "running",
-                    "trade": {"stake": 5, "profit": 1.2, "symbol": "R_100"},
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-    except Exception:
-        print("Client disconnected")
+    await asyncio.gather(sender(ws), receiver(ws))

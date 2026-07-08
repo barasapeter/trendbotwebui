@@ -29,9 +29,7 @@
     </div>
 
     <div class="main-controls">
-        <button>
-            Run Bot
-        </button>
+        <button id="runBtn">Run Bot</button>
     </div>
 
     <div class="toast">
@@ -53,6 +51,14 @@
 
         const ws = new WebSocket("ws://localhost:8000/ws");
 
+        document.getElementById("runBtn").onclick = () => {
+            ws.send(JSON.stringify({
+                action: "run_bot",
+                mode: "demo",
+                stake: 5
+            }));
+        };
+
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
 
@@ -60,6 +66,7 @@
             document.getElementById("PL").textContent = data.pl;
 
             const p = document.createElement("p");
+            p.style.color = data.color;
             p.textContent = data.status;
 
             output.appendChild(p);
