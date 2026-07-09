@@ -13,6 +13,21 @@ const waitingText = document.getElementById("waitingText");
 let streamEnded = false;
 
 // ==========================================================================
+// Mode state management with persistence
+// ==========================================================================
+// Try to load saved mode from localStorage, fallback to "demo"
+let selectedMode = localStorage.getItem("selectedMode") || "demo";
+
+// Update UI to reflect saved mode
+modeButtons.forEach((btn) => {
+  if (btn.dataset.mode === selectedMode) {
+    btn.classList.add("active");
+  } else {
+    btn.classList.remove("active");
+  }
+});
+
+// ==========================================================================
 // Run Button State Management
 // ==========================================================================
 const RunButtonState = {
@@ -84,15 +99,56 @@ function setWaiting(state) {
   }
 }
 
-let selectedMode = "demo";
-
+// ==========================================================================
+// Mode selection with persistence and balance refresh
+// ==========================================================================
 modeButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
+    // Check if this is actually a change
+    if (btn.dataset.mode === selectedMode) {
+      // If clicking the same mode, still refresh balance
+      refreshBalanceForCurrentMode();
+      return;
+    }
+    
+    // Update UI
     modeButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
+    
+    // Save selected mode
     selectedMode = btn.dataset.mode;
+    localStorage.setItem("selectedMode", selectedMode);
+    
+    // Reset initial balance when switching modes
+    initialBal = 0;
+    
+    // Show skeleton while loading new balance
+    showSkeleton(balanceEl, 'number');
+    showSkeleton(plEl, 'number');
+    
+    // Refresh balance for the new mode
+    refreshBalanceForCurrentMode();
   });
 });
+
+// ==========================================================================
+// Refresh balance for current mode
+// ==========================================================================
+function refreshBalanceForCurrentMode() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log(`Requesting balance for mode: ${selectedMode}`);
+    ws.send(JSON.stringify({
+      action: "get_balance",
+      mode: selectedMode
+    }));
+  } else {
+    console.warn("WebSocket not open, cannot refresh balance");
+    // Try again when connection opens
+    pendingBalanceRequest = true;
+  }
+}
+
+let pendingBalanceRequest = false;
 
 // ==========================================================================
 // Accent system
@@ -464,17 +520,6 @@ function updateConnectionIndicators(connected) {
 }
 
 // ==========================================================================
-// Request initial balance
-// ==========================================================================
-function requestInitialBalance() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      action: "get_balance"
-    }));
-  }
-}
-
-// ==========================================================================
 // WebSocket wiring
 // ==========================================================================
 const ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -498,8 +543,14 @@ ws.onopen = () => {
   // Update connection indicators
   updateConnectionIndicators(true);
   
-  // Request initial balance immediately on connection
-  requestInitialBalance();
+  // Request initial balance with current mode
+  refreshBalanceForCurrentMode();
+  
+  // Handle any pending balance requests
+  if (pendingBalanceRequest) {
+    pendingBalanceRequest = false;
+    refreshBalanceForCurrentMode();
+  }
   
   // Update button state
   if (!isBotRunning && !isInitializing) {
@@ -642,7 +693,7 @@ window.addEventListener("beforeunload", () => {
 // If WebSocket is already open when this script loads, request balance immediately
 if (ws.readyState === WebSocket.OPEN) {
   updateConnectionIndicators(true);
-  requestInitialBalance();
+  refreshBalanceForCurrentMode();
   if (!isBotRunning && !isInitializing) {
     updateRunButton(RunButtonState.READY);
   }

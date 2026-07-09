@@ -409,19 +409,43 @@ async def run_session(client, session_num, ws: WebSocket):
 
 
 async def receiver(ws: WebSocket):
-    # Create a single client instance that will be reused
-    client = None
+    # Store client instances for each mode
+    clients = {"real": None, "demo": None}
+    current_mode = "demo"  # Default mode
 
     try:
         while True:
             data = await ws.receive_json()
 
             action = data.get("action")
+            requested_mode = data.get("mode", "demo")
 
-            # Only create client if it doesn't exist or was closed
+            print(f"Action: {action}, Mode: {requested_mode}")
+
+            # Update current mode
+            current_mode = requested_mode
+
+            # Get or create client for the requested mode
+            client = clients.get(current_mode)
+
+            # If client doesn't exist or is closed, create a new one
             if client is None:
-                client = DerivClient(ws_url=get_ws_url(account_type="demo"))
+                print(f"Creating new {current_mode} client...")
+                client = DerivClient(ws_url=get_ws_url(account_type=current_mode))
                 await client.connect()
+                clients[current_mode] = client
+                print(f"{current_mode.capitalize()} client connected successfully")
+            else:
+                # Check if client is still connected
+                try:
+                    # Test connection by sending a ping
+                    await client.send({"ping": 1})
+                except:
+                    print(f"Reconnecting {current_mode} client...")
+                    await client.close()
+                    client = DerivClient(ws_url=get_ws_url(account_type=current_mode))
+                    await client.connect()
+                    clients[current_mode] = client
 
             # Send initial balance via WebSocket
             initial_balance = await get_account_balance(client)
@@ -431,6 +455,7 @@ async def receiver(ws: WebSocket):
                     "pl": "+0.00",
                     "bot": {"running": True},
                     "is_initial": True,
+                    "mode": current_mode,
                 }
             )
 
@@ -536,14 +561,15 @@ async def receiver(ws: WebSocket):
 
                         await stream(ws, bot_shutdown_summary)
 
+                        # Close the client for the current mode
                         await client.close()
-                        client = None
+                        clients[current_mode] = None
 
             elif action == "stop_bot":
                 if client:
                     # Close the client connection
                     await client.close()
-                    client = None
+                    clients[current_mode] = None
                 await stream(
                     ws,
                     {
@@ -560,31 +586,91 @@ async def receiver(ws: WebSocket):
                 await stream(ws, "New stake:", data["stake"])
 
             elif action == "switch_account":
-                if client:
-                    await client.close()
-                    client = None
+                # Close existing client for the mode
+                if clients.get(data["account"]):
+                    await clients[data["account"]].close()
+                    clients[data["account"]] = None
                 await stream(ws, "Account:", data["account"])
 
             elif action == "get_balance":
-                if client:
-                    balance = await get_account_balance(client)
-                    await ws.send_json(
-                        {
-                            "balance": balance,
-                            "pl": "+0.00",
-                            "status": "Balance updated",
-                            "is_balance_update": True,
-                        }
-                    )
+                # Get the client for the requested mode
+                mode = data.get("mode", current_mode)
+                client_for_balance = clients.get(mode)
+
+                if client_for_balance:
+                    try:
+                        balance = await get_account_balance(client_for_balance)
+                        await ws.send_json(
+                            {
+                                "balance": balance,
+                                "pl": "+0.00",
+                                "status": "Balance updated",
+                                "is_balance_update": True,
+                                "mode": mode,
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error getting balance for {mode}: {e}")
+                        # Try to reconnect
+                        try:
+                            await client_for_balance.close()
+                        except:
+                            pass
+                        client_for_balance = DerivClient(
+                            ws_url=get_ws_url(account_type=mode)
+                        )
+                        await client_for_balance.connect()
+                        clients[mode] = client_for_balance
+                        balance = await get_account_balance(client_for_balance)
+                        await ws.send_json(
+                            {
+                                "balance": balance,
+                                "pl": "+0.00",
+                                "status": "Balance updated (reconnected)",
+                                "is_balance_update": True,
+                                "mode": mode,
+                            }
+                        )
                 else:
-                    await ws.send_json(
-                        {"balance": "Not connected", "status": "No active connection"}
-                    )
+                    # Create a new client for this mode
+                    print(f"Creating new {mode} client for balance request...")
+                    try:
+                        client_for_balance = DerivClient(
+                            ws_url=get_ws_url(account_type=mode)
+                        )
+                        await client_for_balance.connect()
+                        clients[mode] = client_for_balance
+                        balance = await get_account_balance(client_for_balance)
+                        await ws.send_json(
+                            {
+                                "balance": balance,
+                                "pl": "+0.00",
+                                "status": "Balance updated (new connection)",
+                                "is_balance_update": True,
+                                "mode": mode,
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error creating {mode} client: {e}")
+                        await ws.send_json(
+                            {
+                                "balance": 0.0,
+                                "pl": "+0.00",
+                                "status": f"Error: {str(e)}",
+                                "is_balance_update": True,
+                                "mode": mode,
+                            }
+                        )
 
     except WebSocketDisconnect:
         print("Client disconnected.")
-        if client:
-            await client.close()
+        # Close all clients
+        for mode, client in clients.items():
+            if client:
+                try:
+                    await client.close()
+                except Exception:
+                    pass
 
 
 @app.websocket("/ws")

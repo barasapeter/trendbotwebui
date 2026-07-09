@@ -475,37 +475,37 @@ body {
 
 /* Card color variants - keeping original theming */
 .feed-card.profit { 
-  border: 1.5px solid var(--profit);
+  border: 0.7px solid var(--profit);
   background: var(--profit-dim);
 }
 .feed-card.profit .card-title { color: var(--profit); }
 
 .feed-card.loss { 
-  border: 1.2px solid var(--loss);
+  border: 0.7px solid var(--loss);
   background: var(--loss-dim);
 }
 .feed-card.loss .card-title { color: var(--loss); }
 
 .feed-card.warn { 
-  border: 1.2px solid var(--warn);
+  border: 0.7px solid var(--warn);
   background: var(--warn-dim);
 }
 .feed-card.warn .card-title { color: var(--warn); }
 
 .feed-card.info { 
-  border: 1.2px solid var(--info);
+  border: 0.7px solid var(--info);
   background: var(--info-dim);
 }
 .feed-card.info .card-title { color: var(--info); }
 
 .feed-card.gold { 
-  border: 1.2px solid var(--gold);
+  border: 0.7px solid var(--gold);
   background: var(--gold-dim);
 }
 .feed-card.gold .card-title { color: var(--gold); }
 
 .feed-card.neutral { 
-  border: 1.2px solid var(--border-strong);
+  border: 0.7px solid var(--border-strong);
   background: var(--surface);
 }
 .feed-card.neutral .card-title { color: var(--text); }
@@ -574,11 +574,11 @@ body {
 .log-line {
   font-size: 12.5px;
   font-weight: 600;
-  padding: 10px 12px 10px 8px;
+  padding: 15px 15px 15px 10px;
   color: var(--text-dim);
   background: var(--surface-2);
   border-radius: var(--radius-sm);
-  margin: 2px 0;
+  margin: 8px;
   border: 1px solid var(--border);
 }
 
