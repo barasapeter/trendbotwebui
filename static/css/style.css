@@ -132,13 +132,22 @@ body {
   padding: 8px 16px;
   border-radius: 999px;
   cursor: default;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
 }
 
 .btn-settings:hover {
   border-color: var(--info);
   color: var(--info);
   background: var(--info-dim);
+}
+
+.btn-settings:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--text-dim);
+  border-color: var(--border-strong);
+  background: var(--surface);
+  pointer-events: none;
 }
 
 /* ==========================================================================
@@ -574,12 +583,13 @@ body {
 .log-line {
   font-size: 12.5px;
   font-weight: 600;
-  padding: 15px 15px 15px 10px;
+  padding: 15px;
   color: var(--text-dim);
   background: var(--surface-2);
   border-radius: var(--radius-sm);
   margin: 8px;
   border: 1px solid var(--border);
+  max-width: fit-content;
 }
 
 /* Shutdown summary */
@@ -605,9 +615,9 @@ body {
     var(--surface-2) 50%,
     var(--border) 75%
   );
-  background-size: 200% 100%;
+  background-size: 30% 10%;
   animation: shimmer 1.5s ease-in-out infinite;
-  border-radius: 6px;
+  border-radius: 26px;
   color: transparent !important;
   pointer-events: none;
   user-select: none;
@@ -745,6 +755,6 @@ body {
   
   .log-line {
     font-size: 11px;
-    padding: 8px 10px 8px 6px;
+    padding: 8px;
   }
 }

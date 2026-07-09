@@ -87,7 +87,7 @@ async def stream(ws: WebSocket, data: dict):
 # ==========================================
 # 3. SINGLE SESSION EXECUTION ENGINE
 # ==========================================
-async def run_session(client, session_num, ws: WebSocket):
+async def run_session(client, session_num, ws: WebSocket, stop_bot):
     """
     Runs one full session (until profit target or stop-loss is hit) and
     returns the session's net PnL so the caller can accumulate it.
@@ -249,6 +249,9 @@ async def run_session(client, session_num, ws: WebSocket):
         }
         await stream(ws, session_summary)
 
+        if stop_bot:
+            break
+
         # Send Execution Payload
         buy_payload = {
             "buy": "1",
@@ -292,8 +295,7 @@ async def run_session(client, session_num, ws: WebSocket):
                     },
                 },
             )
-            await asyncio.sleep(5)
-            continue
+            break
 
         contract_id = buy_response["buy"]["contract_id"]
 
@@ -414,6 +416,7 @@ async def receiver(ws: WebSocket):
     current_mode = "demo"  # Default mode
 
     try:
+        stop_bot = False
         while True:
             data = await ws.receive_json()
 
@@ -440,7 +443,7 @@ async def receiver(ws: WebSocket):
                 try:
                     # Test connection by sending a ping
                     await client.send({"ping": 1})
-                except:
+                except Exception:
                     print(f"Reconnecting {current_mode} client...")
                     await client.close()
                     client = DerivClient(ws_url=get_ws_url(account_type=current_mode))
@@ -474,7 +477,9 @@ async def receiver(ws: WebSocket):
                 try:
                     while MAX_SESSIONS is None or session_num < MAX_SESSIONS:
                         session_num += 1
-                        session_pnl = await run_session(client, session_num, ws)
+                        session_pnl = await run_session(
+                            client, session_num, ws, stop_bot=stop_bot
+                        )
                         grand_total_pnl += session_pnl
 
                         running_balance = await get_account_balance(client)
@@ -566,18 +571,16 @@ async def receiver(ws: WebSocket):
                         clients[current_mode] = None
 
             elif action == "stop_bot":
-                if client:
-                    # Close the client connection
-                    await client.close()
-                    clients[current_mode] = None
+                stop_bot = True
                 await stream(
                     ws,
                     {
-                        "title": "Bot Stopped",
-                        "balance": "Disconnected",
+                        "widget": "notification",
+                        "title": "STOP COMMAND RECEIVED",
+                        "balance": await get_account_balance(client) if client else 0,
                         "metadata": {
-                            "message": "Bot stopped by user request",
-                            "status": "info",
+                            "message": "Bot stop command received. Stopping...",
+                            "status": "error",
                         },
                     },
                 )
@@ -614,7 +617,7 @@ async def receiver(ws: WebSocket):
                         # Try to reconnect
                         try:
                             await client_for_balance.close()
-                        except:
+                        except Exception:
                             pass
                         client_for_balance = DerivClient(
                             ws_url=get_ws_url(account_type=mode)

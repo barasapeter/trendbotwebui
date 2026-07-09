@@ -3,6 +3,7 @@
 // ==========================================================================
 const feedBody = document.getElementById("feedBody");
 const runBtn = document.getElementById("runBtn");
+const stopBtn = document.getElementById("stopBtn");
 const connDot = document.getElementById("connDot");
 const connLabel = document.getElementById("connLabel");
 const balanceEl = document.getElementById("balance");
@@ -568,6 +569,16 @@ ws.onmessage = (event) => {
   
   // Handle balance and PL updates from trade_stream
   if (data.trade_stream) {
+    stopBtn.style.display = "block";
+    if (data.trade_stream.widget == "bot_shutdown_summary") {
+      stopBtn.style.display = "none";
+    }
+    if (data.trade_stream.title == "STOP COMMAND RECEIVED") {
+      stopBtn.textContent = "Bot Stopped";
+      setTimeout(() => {
+          stopBtn.style.display = "none";
+      }, 1000);
+    }
     // Update balance if present
     if (data.trade_stream.balance !== undefined) {
       const balance = data.trade_stream.balance;
@@ -680,6 +691,20 @@ runBtn.onclick = () => {
     })
   );
 };
+
+
+
+stopBtn.addEventListener("click", () => {
+    stopBtn.textContent = "Stopping...";
+    stopBtn.disabled = true;
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: "stop_bot"
+        }));
+    } else {
+      stopBtn.textContent = "No Connection";
+    }
+});
 
 // Handle page unload
 window.addEventListener("pagehide", () => {
