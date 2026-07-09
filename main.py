@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.middleware.sessions import SessionMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import asyncio
@@ -18,6 +19,12 @@ users_dir.mkdir(parents=True, exist_ok=True)
 
 
 app = FastAPI()
+
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="Load it later... adios!",
+)
 
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -52,6 +59,8 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    if not request.session.get("username"):
+        return RedirectResponse("/auth")
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -108,6 +117,9 @@ async def auth_post(request: Request):
             and user.get("app_id") == existing_user.get("app_id")
         ):
             request.session["username"] = username
+            request.session["api_token"] = existing_user.get("api_token")
+            request.session["app_id"] = existing_user.get("app_id")
+
             return JSONResponse(status_code=200, content={"detail": "Login successful"})
 
         raise HTTPException(
@@ -119,6 +131,10 @@ async def auth_post(request: Request):
 
         with open(filepath, "w", encoding="utf-8") as file:
             json.dump(user, file, indent=4)
+
+        request.session["username"] = username
+        request.session["api_token"] = existing_user.get("api_token")
+        request.session["app_id"] = existing_user.get("app_id")
 
         return JSONResponse(
             status_code=200, content={"detail": "Account created successfully"}
@@ -745,7 +761,7 @@ async def run_bot_loop(
         await client.close()
 
 
-async def receiver(ws: WebSocket):
+async def receiver(ws: WebSocket, request: Request):
     # Store client instances for each mode
     clients = {"real": None, "demo": None}
     current_mode = "demo"  # Default mode
@@ -779,7 +795,13 @@ async def receiver(ws: WebSocket):
             # If client doesn't exist or is closed, create a new one
             if client is None:
                 print(f"Creating new {current_mode} client...")
-                client = DerivClient(ws_url=get_ws_url(account_type=current_mode))
+                client = DerivClient(
+                    ws_url=get_ws_url(
+                        account_type=current_mode,
+                        token=request.session.get("api_token"),
+                        app_id=request.session.get("app_id"),
+                    )
+                )
                 await client.connect()
                 clients[current_mode] = client
                 print(f"{current_mode.capitalize()} client connected successfully")
@@ -791,7 +813,13 @@ async def receiver(ws: WebSocket):
                 except Exception:
                     print(f"Reconnecting {current_mode} client...")
                     await client.close()
-                    client = DerivClient(ws_url=get_ws_url(account_type=current_mode))
+                    client = DerivClient(
+                        ws_url=get_ws_url(
+                            account_type=current_mode,
+                            token=request.session.get("api_token"),
+                            app_id=request.session.get("app_id"),
+                        )
+                    )
                     await client.connect()
                     clients[current_mode] = client
 
@@ -920,7 +948,11 @@ async def receiver(ws: WebSocket):
                         except Exception:
                             pass
                         client_for_balance = DerivClient(
-                            ws_url=get_ws_url(account_type=mode)
+                            ws_url=get_ws_url(
+                                account_type=mode,
+                                token=request.session.get("api_token"),
+                                app_id=request.session.get("app_id"),
+                            )
                         )
                         await client_for_balance.connect()
                         clients[mode] = client_for_balance
@@ -939,7 +971,11 @@ async def receiver(ws: WebSocket):
                     print(f"Creating new {mode} client for balance request...")
                     try:
                         client_for_balance = DerivClient(
-                            ws_url=get_ws_url(account_type=mode)
+                            ws_url=get_ws_url(
+                                account_type=mode,
+                                token=request.session.get("api_token"),
+                                app_id=request.session.get("app_id"),
+                            )
                         )
                         await client_for_balance.connect()
                         clients[mode] = client_for_balance
@@ -988,7 +1024,7 @@ async def receiver(ws: WebSocket):
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
 
-    receiver_task = asyncio.create_task(receiver(ws))
+    receiver_task = asyncio.create_task(receiver(ws, session=ws.scope.get("session")))
 
     done, pending = await asyncio.wait(
         [receiver_task],
