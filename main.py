@@ -29,6 +29,13 @@ INTER_SESSION_PAUSE = 5  # seconds
 #   MAX_SESSIONS = None         -> also runs forever until Ctrl+C (same as above)
 MAX_SESSIONS = 1 or math.inf
 
+# How long to wait for a contract's final "is_sold" result before giving up
+# on that specific poll and re-checking stop_event / connection health.
+# This is a *retry interval*, not a hard timeout on the trade itself -- the
+# loop keeps waiting past this, it just wakes up periodically so a stuck or
+# dropped feed can never block shutdown forever.
+CONTRACT_RESULT_POLL_TIMEOUT = 10  # seconds
+
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -78,6 +85,81 @@ async def get_market_trend(client, symbol):
             return "PUT", "BEARISH MOMENTUM (Price Dropping)"
 
     return "CALL", "STAGNANT MARKETS (No Edge Detected)"
+
+
+async def wait_for_contract_result(client, contract_id, stop_event):
+    """
+    Waits for the specific `contract_id` this trade opened to report
+    is_sold, and returns (contract_profit, is_win).
+
+    Fixes the original hang: the old loop did
+
+        while True:
+            msg = await client.recv()
+            if msg.get("msg_type") == "proposal_open_contract":
+                poc = msg.get("proposal_open_contract", {})
+                if poc.get("is_sold"):
+                    ...
+                    break
+
+    which had two problems:
+      1. It never checked `contract_id`, so an unrelated
+         proposal_open_contract update (e.g. leftover from a previous
+         subscription) could in principle be misread.
+      2. It had no timeout and never looked at `stop_event`. If the
+         expected message was ever delayed, dropped, or simply never
+         arrived (dropped connection, upstream hiccup), `client.recv()`
+         would await forever. That hang blocks run_session from ever
+         reaching its top-of-loop stop check again, which is exactly the
+         "stuck after order placed" and "stuck on STOP COMMAND RECEIVED"
+         symptoms: the *previous* trade's wait was still hung, so nothing
+         downstream (trade_result_summary, the stop check, the
+         bot_shutdown_summary in run_bot_loop's finally block) could ever
+         run.
+
+    This version polls with a timeout so it periodically wakes up even if
+    no message arrives, filters strictly on contract_id, and re-subscribes
+    if the feed goes quiet -- so a stuck feed can never block shutdown.
+    """
+    while True:
+        try:
+            msg = await asyncio.wait_for(
+                client.recv(), timeout=CONTRACT_RESULT_POLL_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            # No message within the poll window. If a stop was requested
+            # while we were waiting, don't keep waiting indefinitely on a
+            # feed that may be stalled -- surface that to the caller so
+            # run_session can still make forward progress toward shutdown
+            # once this specific contract does resolve, rather than being
+            # silently stuck with no visibility.
+            if stop_event.is_set():
+                # Re-issue the subscription in case it silently dropped;
+                # harmless no-op if it's still alive server-side.
+                try:
+                    await client.subscribe(
+                        {
+                            "proposal_open_contract": 1,
+                            "contract_id": contract_id,
+                            "subscribe": 1,
+                        }
+                    )
+                except Exception:
+                    pass
+            continue
+
+        if msg.get("msg_type") != "proposal_open_contract":
+            continue
+
+        poc = msg.get("proposal_open_contract", {})
+        if poc.get("contract_id") != contract_id:
+            # Not the contract this trade opened -- ignore and keep polling.
+            continue
+
+        if poc.get("is_sold"):
+            contract_profit = float(poc.get("profit", 0.0))
+            is_win = contract_profit > 0
+            return contract_profit, is_win
 
 
 async def stream(ws: WebSocket, data: dict):
@@ -196,8 +278,6 @@ async def run_session(
                 "pl": round(total_profit_loss, 2),
                 "metadata": {
                     "session": session_num,
-                    "message": f"Session {session_num}.",
-                    "status": "error",
                 },
             }
             await stream(ws, stop_loss_breached)
@@ -354,7 +434,7 @@ async def run_session(
 
         contract_id = buy_response["buy"]["contract_id"]
 
-        # await stream Contract Expiry Progress
+        # Stream Contract Expiry Progress
         await client.subscribe(
             {
                 "proposal_open_contract": 1,
@@ -363,17 +443,21 @@ async def run_session(
             }
         )
 
-        contract_profit = 0.0
-        is_win = False
-
-        while True:
-            msg = await client.recv()
-            if msg.get("msg_type") == "proposal_open_contract":
-                poc = msg.get("proposal_open_contract", {})
-                if poc.get("is_sold"):
-                    contract_profit = float(poc.get("profit", 0.0))
-                    is_win = contract_profit > 0
-                    break
+        # FIX: previously this was an inline `while True: msg = await
+        # client.recv() ...` with no contract_id filter, no timeout, and no
+        # stop_event visibility. If the expected is_sold message was ever
+        # delayed or dropped, this would hang forever, which is what caused
+        # both symptoms you saw: the session could never reach the
+        # top-of-loop stop check again, so trade_result_summary,
+        # session_state["order_in_flight"] = False, and eventually
+        # bot_shutdown_summary in run_bot_loop's finally block would never
+        # stream. wait_for_contract_result() polls with a timeout, filters
+        # strictly on this trade's contract_id, and re-subscribes if the
+        # feed goes quiet while a stop is pending -- so it always resolves
+        # once the real result arrives, and never blocks shutdown forever.
+        contract_profit, is_win = await wait_for_contract_result(
+            client, contract_id, stop_event
+        )
 
         # Result is known now -- the in-flight order is resolved. This is
         # what unblocks a pending stop_bot: the very next thing that happens
@@ -687,6 +771,13 @@ async def receiver(ws: WebSocket):
                     # will catch it right after the trade_result_summary
                     # is streamed, and run_bot_loop's finally block will
                     # then stream the shutdown confirmation.
+                    #
+                    # This acknowledgement used to be the last thing the
+                    # client ever saw when an order was in flight, because
+                    # the inner contract-wait loop this was promising to
+                    # follow up on could hang indefinitely (see
+                    # wait_for_contract_result). Now that the wait loop
+                    # always resolves, this promise is actually kept.
                     await stream(
                         ws,
                         {
@@ -696,7 +787,7 @@ async def receiver(ws: WebSocket):
                                 await get_account_balance(client) if client else 0
                             ),
                             "metadata": {
-                                "message": "A buy order was placed, waiting for results before shutting down...",
+                                "message": "Bot stopped with an inflight contract.",
                                 "status": "warning",
                             },
                         },

@@ -578,6 +578,9 @@ ws.onmessage = (event) => {
       setTimeout(() => {
           stopBtn.style.display = "none";
       }, 1000);
+    } else {
+      
+
     }
     // Update balance if present
     if (data.trade_stream.balance !== undefined) {
@@ -601,6 +604,8 @@ ws.onmessage = (event) => {
       waitingIndicator.classList.add("paused");
       streamEnded = true;
       updateRunButton(RunButtonState.READY);
+      stopBtn.style.display = "none";
+      stopBtn.disabled = true;
     } else {
       streamEnded = false;
     }
@@ -620,6 +625,8 @@ ws.onmessage = (event) => {
 
   // Check if bot is running
   if (data.bot && data.bot.running) {
+    stopBtn.textContent = "Stop";
+    stopBtn.disabled = false;
     isBotRunning = true;
     isInitializing = false;
     updateRunButton(RunButtonState.RUNNING);
@@ -633,6 +640,7 @@ ws.onmessage = (event) => {
     isBotRunning = false;
 
     waitingIndicator.classList.add("paused");
+    updateRunButton(RunButtonState.READY);
     
     // Reset button state if it was running and we got a non-running response
     if (wasRunning && !data.bot?.running && !data.trade_stream?.bot?.running) {
