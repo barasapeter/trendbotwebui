@@ -1,21 +1,20 @@
-"""auth.py"""
-
-import os
-from dotenv import load_dotenv
+# import os
+# from dotenv import load_dotenv
 import requests
- 
-load_dotenv()
 
-TOKEN = os.getenv("TOKEN")
-APP_ID = os.getenv("APP_ID")
+# load_dotenv()
 
-HEADERS = {
-    "Authorization": f"Bearer {TOKEN}",
-    "Deriv-App-ID": APP_ID,
-}
+# TOKEN = os.getenv("TOKEN")
+# APP_ID = os.getenv("APP_ID")
 
 
-def get_ws_url(account_type):
+def get_ws_url(account_type, token, app_id):
+    TOKEN = token
+    APP_ID = app_id
+    HEADERS = {
+        "Authorization": f"Bearer {TOKEN}",
+        "Deriv-App-ID": APP_ID,
+    }
     get_app_id_response = requests.get(
         "https://api.derivws.com/trading/v1/options/accounts", headers=HEADERS
     )

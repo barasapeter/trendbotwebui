@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amy · Onboarding</title>
+    <link rel="stylesheet" href="/static/css/onboard.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+
+<div class="card">
+    <div class="progress-container">
+        <div class="progress-labels" id="progressLabels">
+            <span class="progress-label active" data-step="1">Token</span>
+            <span class="progress-label" data-step="2">App</span>
+            <span class="progress-label" data-step="3">Email</span>
+            <span class="progress-label" data-step="4">Confirm</span>
+        </div>
+        <div class="progress-bar" id="progressBar">
+            <div class="progress-segment active" data-step="1"></div>
+            <div class="progress-segment" data-step="2"></div>
+            <div class="progress-segment" data-step="3"></div>
+            <div class="progress-segment" data-step="4"></div>
+        </div>
+    </div>
+
+    <div id="stepContainer" class="step-panel"></div>
+
+    <div id="feedback" class="feedback hidden">
+        <i class="fas fa-info-circle"></i>
+        <span id="feedbackText"></span>
+    </div>
+</div>
+
+<script src="/static/js/onboard.js"></script>
+</body>
+</html>

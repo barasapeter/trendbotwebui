@@ -1,13 +1,21 @@
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import asyncio
 from datetime import datetime
-import random
+from zoneinfo import ZoneInfo
+import json
 from client import DerivClient
 from auth import get_ws_url
 import math
+import utils
+
+from pathlib import Path
+
+users_dir = Path("users")
+users_dir.mkdir(parents=True, exist_ok=True)
+
 
 app = FastAPI()
 
@@ -47,8 +55,77 @@ async def home(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"title": "FastAPI", "balance": None, "PL": None},
+        context={"title": "Runner", "balance": None, "PL": None},
     )
+
+
+@app.get("/auth", response_class=HTMLResponse)
+async def auth(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="auth.html",
+        context={"title": "Authorization - Amy"},
+    )
+
+
+@app.post("/auth", response_class=JSONResponse)
+async def auth_post(request: Request):
+    payload = await request.json()
+    api_token = payload.get("api_token")
+    app_id = payload.get("app_id")
+    email = payload.get("email")
+
+    if not api_token or not app_id or not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required fields: api_token, app_id or email",
+        )
+
+    email_is_valid, username = (result := utils.validate_email(email))["valid"], result[
+        "username"
+    ]
+    if not email_is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid email address",
+        )
+
+    user = {
+        "username": username,
+        "api_token": api_token,
+        "app_id": app_id,
+        "created_at": datetime.now(ZoneInfo("Africa/Nairobi")),
+    }
+
+    filepath = Path("users") / f"{username}.json"
+    if filepath.exists():
+        with open(filepath, "r") as file:
+            existing_user: dict = json.load(file)
+
+        if (
+            user.get("username") == existing_user.get("username")
+            and user.get("api_token") == existing_user.get("api_token")
+            and user.get("app_id") == existing_user.get("app_id")
+        ):
+            request.session["username"] = username
+            return JSONResponse(status_code=200, content={"detail": "Login successful"})
+
+        raise HTTPException(
+            status_code=401, detail="The sign-in details are incorrect."
+        )
+
+    try:
+        get_ws_url(account_type="demo", token=api_token, app_id=app_id)
+
+        with open(filepath, "w", encoding="utf-8") as file:
+            json.dump(user, file, indent=4)
+
+        return JSONResponse(
+            status_code=200, content={"detail": "Account created successfully"}
+        )
+
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token or app_id")
 
 
 async def get_account_balance(client):
