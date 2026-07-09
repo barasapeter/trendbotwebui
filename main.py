@@ -87,7 +87,9 @@ async def stream(ws: WebSocket, data: dict):
 # ==========================================
 # 3. SINGLE SESSION EXECUTION ENGINE
 # ==========================================
-async def run_session(client, session_num, ws: WebSocket, stop_event: asyncio.Event):
+async def run_session(
+    client, session_num, ws: WebSocket, stop_event: asyncio.Event, session_state: dict
+):
     """
     Runs one full session (until profit target or stop-loss is hit) and
     returns the session's net PnL so the caller can accumulate it.
@@ -95,6 +97,13 @@ async def run_session(client, session_num, ws: WebSocket, stop_event: asyncio.Ev
     `stop_event` is an asyncio.Event shared with the receiver's message loop.
     It is checked at the TOP of every iteration -- before any market lookup
     or buy payload is built -- so once it's set, no new trade is ever placed.
+
+    `session_state` is a shared dict. Its "order_in_flight" flag is set True
+    the instant a buy payload is sent over the network, and False again once
+    that contract's result is known. The receiver's stop_bot handler reads
+    this flag to decide what acknowledgement to send: if an order is already
+    in flight, stopping must wait for that order's result rather than cutting
+    it off.
     """
 
     # ==========================================
@@ -307,9 +316,15 @@ async def run_session(client, session_num, ws: WebSocket, stop_event: asyncio.Ev
             },
         }
 
+        # From this point on the network payload has left for the buy order.
+        # Mark it as in-flight so a concurrent stop_bot request knows it must
+        # wait for this specific order's result before shutting down.
+        session_state["order_in_flight"] = True
         buy_response = await client.send(buy_payload)
 
         if "error" in buy_response:
+            # No contract was actually opened -- safe to clear immediately.
+            session_state["order_in_flight"] = False
             order_rejected = {
                 "widget": "snackbar",
                 "title": "ORDER REJECTED BY SERVER",
@@ -359,6 +374,12 @@ async def run_session(client, session_num, ws: WebSocket, stop_event: asyncio.Ev
                     contract_profit = float(poc.get("profit", 0.0))
                     is_win = contract_profit > 0
                     break
+
+        # Result is known now -- the in-flight order is resolved. This is
+        # what unblocks a pending stop_bot: the very next thing that happens
+        # is the trade_result_summary stream below, followed (if stopping)
+        # by the top-of-loop stop check and the shutdown summary.
+        session_state["order_in_flight"] = False
 
         # Calculate Running Accounting Adjustments
         total_profit_loss += contract_profit
@@ -450,7 +471,13 @@ async def run_session(client, session_num, ws: WebSocket, stop_event: asyncio.Ev
     return total_profit_loss
 
 
-async def run_bot_loop(client, ws: WebSocket, stop_event: asyncio.Event, current_mode: str):
+async def run_bot_loop(
+    client,
+    ws: WebSocket,
+    stop_event: asyncio.Event,
+    current_mode: str,
+    session_state: dict,
+):
     """
     Runs the multi-session bot loop. This is launched as its OWN background
     task by receiver() so that the websocket receive loop stays free to
@@ -475,7 +502,9 @@ async def run_bot_loop(client, ws: WebSocket, stop_event: asyncio.Event, current
                 break
 
             session_num += 1
-            session_pnl = await run_session(client, session_num, ws, stop_event)
+            session_pnl = await run_session(
+                client, session_num, ws, stop_event, session_state
+            )
             grand_total_pnl += session_pnl
 
             running_balance = await get_account_balance(client)
@@ -566,6 +595,10 @@ async def receiver(ws: WebSocket):
     # `.set()` from here even while run_session() is mid-loop.
     stop_event = asyncio.Event()
     bot_task: asyncio.Task | None = None
+    # Tracks whether the currently running bot has a buy order in flight
+    # (network payload already sent, result not yet known). Read by the
+    # stop_bot handler below to decide which acknowledgement to send.
+    session_state = {"order_in_flight": False}
 
     try:
         while True:
@@ -635,24 +668,54 @@ async def receiver(ws: WebSocket):
                     # listening for a `stop_bot` command WHILE trades are
                     # actively being placed.
                     stop_event = asyncio.Event()
+                    session_state = {"order_in_flight": False}
                     bot_task = asyncio.create_task(
-                        run_bot_loop(client, ws, stop_event, current_mode)
+                        run_bot_loop(
+                            client, ws, stop_event, current_mode, session_state
+                        )
                     )
 
             elif action == "stop_bot":
                 stop_event.set()
-                await stream(
-                    ws,
-                    {
-                        "widget": "notification",
-                        "title": "STOP COMMAND RECEIVED",
-                        "balance": await get_account_balance(client) if client else 0,
-                        "metadata": {
-                            "message": "Bot stop command received. No new trades will be placed; stopping as soon as the current step completes.",
-                            "status": "error",
+
+                if session_state.get("order_in_flight"):
+                    # A buy payload already went out over the network. We
+                    # can't cancel it -- acknowledge the stop immediately,
+                    # but be explicit that shutdown waits for that specific
+                    # order's result. No further buy orders will be placed
+                    # after this one; run_session's top-of-loop stop check
+                    # will catch it right after the trade_result_summary
+                    # is streamed, and run_bot_loop's finally block will
+                    # then stream the shutdown confirmation.
+                    await stream(
+                        ws,
+                        {
+                            "widget": "notification",
+                            "title": "STOP COMMAND RECEIVED",
+                            "balance": (
+                                await get_account_balance(client) if client else 0
+                            ),
+                            "metadata": {
+                                "message": "A buy order was placed, waiting for results before shutting down...",
+                                "status": "warning",
+                            },
                         },
-                    },
-                )
+                    )
+                else:
+                    await stream(
+                        ws,
+                        {
+                            "widget": "notification",
+                            "title": "STOP COMMAND RECEIVED",
+                            "balance": (
+                                await get_account_balance(client) if client else 0
+                            ),
+                            "metadata": {
+                                "message": "Bot stop command received. No new trades will be placed; stopping as soon as the current step completes.",
+                                "status": "error",
+                            },
+                        },
+                    )
 
             elif action == "change_stake":
                 await stream(ws, "New stake:", data["stake"])
