@@ -572,6 +572,7 @@ ws.onmessage = (event) => {
     stopBtn.style.display = "block";
     if (data.trade_stream.widget == "bot_shutdown_summary") {
       stopBtn.style.display = "none";
+      updateRunButton(RunButtonState.READY);
     }
     if (data.trade_stream.title == "STOP COMMAND RECEIVED") {
       stopBtn.textContent = "Bot Stopped";
