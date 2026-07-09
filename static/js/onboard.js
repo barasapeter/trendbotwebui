@@ -253,7 +253,7 @@
         const submitBtn = document.getElementById('submitBtn');
         if (submitBtn) {
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> Sending...';
+            submitBtn.innerHTML = 'Processing...';
         }
 
         try {
@@ -278,7 +278,7 @@
                         <h3>Welcome to Amy</h3>
                         <p>${data.detail || 'You\'re all set. Happy building!'}</p>
                         <div style="margin-top:2rem;">
-                            <button class="btn-startover" onclick="location.reload()"><i class="fas fa-redo"></i> Start over</button>
+                            <button class="btn-startover" onclick="window.location.href='/'">Go to Dashboard</button>
                         </div>
                     </div>
                 `;
@@ -295,14 +295,14 @@
                 setFeedback(msg, 'error');
                 if (submitBtn) {
                     submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fas fa-check"></i> Finish';
+                    submitBtn.innerHTML = 'Finish';
                 }
             }
         } catch (err) {
             setFeedback('Network error. Please try again.', 'error');
             if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fas fa-check"></i> Finish';
+                submitBtn.innerHTML = 'Finish';
             }
         }
     }

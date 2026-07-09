@@ -79,69 +79,111 @@ async def auth(request: Request):
 
 @app.post("/auth", response_class=JSONResponse)
 async def auth_post(request: Request):
-    payload = await request.json()
-    api_token = payload.get("api_token")
-    app_id = payload.get("app_id")
-    email = payload.get("email")
-
-    if not api_token or not app_id or not email:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing required fields: api_token, app_id or email",
-        )
-
-    email_is_valid, username = (result := utils.validate_email(email))["valid"], result[
-        "username"
-    ]
-    if not email_is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid email address",
-        )
-
-    user = {
-        "username": username,
-        "api_token": api_token,
-        "app_id": app_id,
-        "created_at": datetime.now(ZoneInfo("Africa/Nairobi")),
-    }
-
-    filepath = Path("users") / f"{username}.json"
-    if filepath.exists():
-        with open(filepath, "r") as file:
-            existing_user: dict = json.load(file)
-
-        if (
-            user.get("username") == existing_user.get("username")
-            and user.get("api_token") == existing_user.get("api_token")
-            and user.get("app_id") == existing_user.get("app_id")
-        ):
-            request.session["username"] = username
-            request.session["api_token"] = existing_user.get("api_token")
-            request.session["app_id"] = existing_user.get("app_id")
-
-            return JSONResponse(status_code=200, content={"detail": "Login successful"})
-
-        raise HTTPException(
-            status_code=401, detail="The sign-in details are incorrect."
-        )
-
     try:
-        get_ws_url(account_type="demo", token=api_token, app_id=app_id)
+        payload = await request.json()
 
-        with open(filepath, "w", encoding="utf-8") as file:
-            json.dump(user, file, indent=4)
+        api_token = payload.get("api_token")
+        app_id = payload.get("app_id")
+        email = payload.get("email")
 
-        request.session["username"] = username
-        request.session["api_token"] = existing_user.get("api_token")
-        request.session["app_id"] = existing_user.get("app_id")
+        if not api_token or not app_id or not email:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: api_token, app_id or email",
+            )
 
-        return JSONResponse(
-            status_code=200, content={"detail": "Account created successfully"}
+        result = utils.validate_email(email)
+
+        if not result["valid"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid email address",
+            )
+
+        username = result["username"]
+
+        user = {
+            "username": username,
+            "api_token": api_token,
+            "app_id": app_id,
+            "created_at": datetime.now(ZoneInfo("Africa/Nairobi")).isoformat(),
+        }
+
+        users_dir = Path("users")
+        users_dir.mkdir(exist_ok=True)
+
+        filepath = users_dir / f"{username}.json"
+
+        # ==========================================================
+        # Existing account
+        # ==========================================================
+        if filepath.exists():
+            try:
+                with open(filepath, "r", encoding="utf-8") as file:
+                    existing_user = json.load(file)
+
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to read user file: {e}",
+                )
+
+            if (
+                user["username"] == existing_user.get("username")
+                and user["api_token"] == existing_user.get("api_token")
+                and user["app_id"] == existing_user.get("app_id")
+            ):
+                request.session["username"] = username
+                request.session["api_token"] = existing_user["api_token"]
+                request.session["app_id"] = existing_user["app_id"]
+
+                return JSONResponse(
+                    status_code=200,
+                    content={"detail": "Login successful"},
+                )
+
+            raise HTTPException(
+                status_code=401,
+                detail="The sign-in details are incorrect.",
+            )
+
+        # ==========================================================
+        # New account
+        # ==========================================================
+        try:
+            # Validate the credentials
+            get_ws_url(
+                account_type="demo",
+                token=api_token,
+                app_id=app_id,
+            )
+
+            with open(filepath, "w", encoding="utf-8") as file:
+                json.dump(user, file, indent=4)
+
+            request.session["username"] = username
+            request.session["api_token"] = api_token
+            request.session["app_id"] = app_id
+
+            return JSONResponse(
+                status_code=200,
+                content={"detail": "Account created successfully"},
+            )
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=401,
+                detail=f"Invalid token or app_id: {e}",
+            )
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(e).__name__}: {e}",
         )
-
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token or app_id")
 
 
 async def get_account_balance(client):
@@ -761,7 +803,7 @@ async def run_bot_loop(
         await client.close()
 
 
-async def receiver(ws: WebSocket, request: Request):
+async def receiver(ws: WebSocket, session: dict):
     # Store client instances for each mode
     clients = {"real": None, "demo": None}
     current_mode = "demo"  # Default mode
@@ -798,8 +840,8 @@ async def receiver(ws: WebSocket, request: Request):
                 client = DerivClient(
                     ws_url=get_ws_url(
                         account_type=current_mode,
-                        token=request.session.get("api_token"),
-                        app_id=request.session.get("app_id"),
+                        token=session.get("api_token"),
+                        app_id=session.get("app_id"),
                     )
                 )
                 await client.connect()
@@ -816,8 +858,8 @@ async def receiver(ws: WebSocket, request: Request):
                     client = DerivClient(
                         ws_url=get_ws_url(
                             account_type=current_mode,
-                            token=request.session.get("api_token"),
-                            app_id=request.session.get("app_id"),
+                            token=session.get("api_token"),
+                            app_id=session.get("app_id"),
                         )
                     )
                     await client.connect()
@@ -950,8 +992,8 @@ async def receiver(ws: WebSocket, request: Request):
                         client_for_balance = DerivClient(
                             ws_url=get_ws_url(
                                 account_type=mode,
-                                token=request.session.get("api_token"),
-                                app_id=request.session.get("app_id"),
+                                token=session.get("api_token"),
+                                app_id=session.get("app_id"),
                             )
                         )
                         await client_for_balance.connect()
@@ -973,8 +1015,8 @@ async def receiver(ws: WebSocket, request: Request):
                         client_for_balance = DerivClient(
                             ws_url=get_ws_url(
                                 account_type=mode,
-                                token=request.session.get("api_token"),
-                                app_id=request.session.get("app_id"),
+                                token=session.get("api_token"),
+                                app_id=session.get("app_id"),
                             )
                         )
                         await client_for_balance.connect()
@@ -1024,7 +1066,7 @@ async def receiver(ws: WebSocket, request: Request):
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
 
-    receiver_task = asyncio.create_task(receiver(ws, session=ws.scope.get("session")))
+    receiver_task = asyncio.create_task(receiver(ws, ws.scope.get("session")))
 
     done, pending = await asyncio.wait(
         [receiver_task],
