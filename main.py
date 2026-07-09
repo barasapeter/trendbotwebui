@@ -87,10 +87,14 @@ async def stream(ws: WebSocket, data: dict):
 # ==========================================
 # 3. SINGLE SESSION EXECUTION ENGINE
 # ==========================================
-async def run_session(client, session_num, ws: WebSocket, stop_bot):
+async def run_session(client, session_num, ws: WebSocket, stop_event: asyncio.Event):
     """
     Runs one full session (until profit target or stop-loss is hit) and
     returns the session's net PnL so the caller can accumulate it.
+
+    `stop_event` is an asyncio.Event shared with the receiver's message loop.
+    It is checked at the TOP of every iteration -- before any market lookup
+    or buy payload is built -- so once it's set, no new trade is ever placed.
     """
 
     # ==========================================
@@ -140,6 +144,27 @@ async def run_session(client, session_num, ws: WebSocket, stop_bot):
     await stream(ws, session_initializer)
 
     while True:
+        # ------------------------------------------------------------
+        # STOP CHECK -- must be the FIRST thing evaluated each loop.
+        # Placing it here (before target/loss checks, before market
+        # lookups, before the buy payload is built) guarantees that once
+        # stop_bot is requested, no further order can ever be sent.
+        # ------------------------------------------------------------
+        if stop_event.is_set():
+            bot_stopped = {
+                "widget": "snackbar",
+                "title": "BOT STOPPED",
+                "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
+                "metadata": {
+                    "session": session_num,
+                    "message": f"Session {session_num} halted by stop command. No further trades will be placed.",
+                    "status": "info",
+                },
+            }
+            await stream(ws, bot_stopped)
+            break
+
         if total_profit_loss >= PROFIT_THRESHOLD:
             target_profit_reached = {
                 "widget": "snackbar",
@@ -249,7 +274,22 @@ async def run_session(client, session_num, ws: WebSocket, stop_bot):
         }
         await stream(ws, session_summary)
 
-        if stop_bot:
+        # Second stop check -- in case stop_bot arrived while we were doing
+        # the (awaited, network-bound) trend lookup above. Still strictly
+        # before the buy payload is sent.
+        if stop_event.is_set():
+            bot_stopped = {
+                "widget": "snackbar",
+                "title": "BOT STOPPED",
+                "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
+                "metadata": {
+                    "session": session_num,
+                    "message": f"Session {session_num} halted by stop command before trade {trade_count} was placed.",
+                    "status": "info",
+                },
+            }
+            await stream(ws, bot_stopped)
             break
 
         # Send Execution Payload
@@ -410,13 +450,124 @@ async def run_session(client, session_num, ws: WebSocket, stop_bot):
     return total_profit_loss
 
 
+async def run_bot_loop(client, ws: WebSocket, stop_event: asyncio.Event, current_mode: str):
+    """
+    Runs the multi-session bot loop. This is launched as its OWN background
+    task by receiver() so that the websocket receive loop stays free to
+    process incoming messages (in particular `stop_bot`) while trading is
+    in progress. Without this, stop_bot could never be received because the
+    receiver task would be blocked awaiting this function synchronously.
+    """
+    await ws.send_json(
+        {
+            "message": "acknowledgement",
+            "status": "Connecting to Deriv servers...",
+        }
+    )
+
+    grand_total_pnl = 0.0
+    session_num = 0
+    starting_balance = await get_account_balance(client)
+
+    try:
+        while MAX_SESSIONS is None or session_num < MAX_SESSIONS:
+            if stop_event.is_set():
+                break
+
+            session_num += 1
+            session_pnl = await run_session(client, session_num, ws, stop_event)
+            grand_total_pnl += session_pnl
+
+            running_balance = await get_account_balance(client)
+
+            print("FINAL PLN::", round(grand_total_pnl, 2))
+
+            cumulative_status_report = {
+                "widget": "cumulative_status",
+                "title": f"SESSIONS CUMULATIVE STATUS (::S{session_num})",
+                "balance": running_balance,
+                "pl": round(grand_total_pnl, 2),
+                "metadata": {
+                    "starting_balance": starting_balance,
+                    "current_balance": running_balance,
+                    "cumulative_net_pnl": grand_total_pnl,
+                    "currency": CURRENCY,
+                    "status": (
+                        "profit"
+                        if grand_total_pnl > 0
+                        else "loss" if grand_total_pnl < 0 else "breakeven"
+                    ),
+                },
+            }
+
+            await stream(ws, cumulative_status_report)
+
+            session_is_final = session_num == MAX_SESSIONS
+            if not session_is_final and not stop_event.is_set():
+                await stream(
+                    ws,
+                    {
+                        "widget": "notification",
+                        "title": "INTER-SESSION PAUSE",
+                        "balance": await get_account_balance(client),
+                        "metadata": {
+                            "duration_seconds": INTER_SESSION_PAUSE,
+                            "message": f"Pausing {INTER_SESSION_PAUSE}s before starting next session...",
+                            "status": "info",
+                        },
+                    },
+                )
+                # Sleep in small increments so a stop_bot command doesn't
+                # have to wait out the full pause before taking effect.
+                slept = 0.0
+                while slept < INTER_SESSION_PAUSE and not stop_event.is_set():
+                    await asyncio.sleep(0.25)
+                    slept += 0.25
+
+    except asyncio.CancelledError:
+        raise
+    finally:
+        final_balance = await get_account_balance(client)
+
+        bot_shutdown_summary = {
+            "widget": "bot_shutdown_summary",
+            "title": "BOT SHUTDOWN FINAL SUMMARY",
+            "balance": final_balance,
+            "end_of_stream": True,
+            "pl": round(grand_total_pnl, 2),
+            "metadata": {
+                "sessions_run": session_num,
+                "starting_balance": starting_balance,
+                "final_balance": final_balance,
+                "all_time_net_pnl": grand_total_pnl,
+                "currency": CURRENCY,
+                "status": (
+                    "profit"
+                    if grand_total_pnl > 0
+                    else "loss" if grand_total_pnl < 0 else "breakeven"
+                ),
+            },
+        }
+
+        await stream(ws, bot_shutdown_summary)
+
+        # Close the client for the current mode
+        await client.close()
+
+
 async def receiver(ws: WebSocket):
     # Store client instances for each mode
     clients = {"real": None, "demo": None}
     current_mode = "demo"  # Default mode
 
+    # Shared, mutable stop signal + handle to the currently running bot task.
+    # A plain bool passed by value cannot be observed by run_session() once
+    # the loop has started; an Event is shared by reference and can be
+    # `.set()` from here even while run_session() is mid-loop.
+    stop_event = asyncio.Event()
+    bot_task: asyncio.Task | None = None
+
     try:
-        stop_bot = False
         while True:
             data = await ws.receive_json()
 
@@ -463,115 +614,33 @@ async def receiver(ws: WebSocket):
             )
 
             if action == "run_bot":
-                await ws.send_json(
-                    {
-                        "message": "acknowledgement",
-                        "status": "Connecting to Deriv servers...",
-                    }
-                )
-
-                grand_total_pnl = 0.0
-                session_num = 0
-                starting_balance = initial_balance
-
-                try:
-                    while MAX_SESSIONS is None or session_num < MAX_SESSIONS:
-                        session_num += 1
-                        session_pnl = await run_session(
-                            client, session_num, ws, stop_bot=stop_bot
-                        )
-                        grand_total_pnl += session_pnl
-
-                        running_balance = await get_account_balance(client)
-
-                        print("FINAL PLN::", round(grand_total_pnl, 2))
-
-                        cumulative_status_report = {
-                            "widget": "cumulative_status",
-                            "title": f"SESSIONS CUMULATIVE STATUS (::S{session_num})",
-                            "balance": running_balance,
-                            "pl": round(grand_total_pnl, 2),
-                            "metadata": {
-                                "starting_balance": starting_balance,
-                                "current_balance": running_balance,
-                                "cumulative_net_pnl": grand_total_pnl,
-                                "currency": CURRENCY,
-                                "status": (
-                                    "profit"
-                                    if grand_total_pnl > 0
-                                    else "loss" if grand_total_pnl < 0 else "breakeven"
-                                ),
-                            },
-                        }
-
-                        await stream(ws, cumulative_status_report)
-
-                        session_is_final = session_num == MAX_SESSIONS
-                        if not session_is_final:
-                            await stream(
-                                ws,
-                                {
-                                    "widget": "notification",
-                                    "title": "INTER-SESSION PAUSE",
-                                    "balance": await get_account_balance(client),
-                                    "metadata": {
-                                        "duration_seconds": INTER_SESSION_PAUSE,
-                                        "message": f"Pausing {INTER_SESSION_PAUSE}s before starting next session...",
-                                        "status": "info",
-                                    },
-                                },
-                            )
-                            await asyncio.sleep(INTER_SESSION_PAUSE)
-
-                except KeyboardInterrupt:
+                if bot_task and not bot_task.done():
                     await stream(
                         ws,
                         {
                             "widget": "notification",
-                            "title": "MANUAL INTERRUPT RECEIVED",
-                            "balance": (
-                                await get_account_balance(client) if client else 0
-                            ),
+                            "title": "BOT ALREADY RUNNING",
+                            "balance": await get_account_balance(client),
                             "metadata": {
-                                "message": "Shutting down gracefully...",
-                                "signal": "SIGINT",
-                                "status": "info",
+                                "message": "A bot session is already in progress.",
+                                "status": "warning",
                             },
                         },
                     )
-
-                finally:
-                    if client:
-                        final_balance = await get_account_balance(client)
-
-                        bot_shutdown_summary = {
-                            "widget": "bot_shutdown_summary",
-                            "title": "BOT SHUTDOWN FINAL SUMMARY",
-                            "balance": final_balance,
-                            "end_of_stream": True,
-                            "pl": round(grand_total_pnl, 2),
-                            "metadata": {
-                                "sessions_run": session_num,
-                                "starting_balance": starting_balance,
-                                "final_balance": final_balance,
-                                "all_time_net_pnl": grand_total_pnl,
-                                "currency": CURRENCY,
-                                "status": (
-                                    "profit"
-                                    if grand_total_pnl > 0
-                                    else "loss" if grand_total_pnl < 0 else "breakeven"
-                                ),
-                            },
-                        }
-
-                        await stream(ws, bot_shutdown_summary)
-
-                        # Close the client for the current mode
-                        await client.close()
-                        clients[current_mode] = None
+                else:
+                    # Reset the stop signal for this fresh run, then launch
+                    # the whole session loop as an independent background
+                    # task. This is the key fix: it frees up this while-loop
+                    # (and the `await ws.receive_json()` below) to keep
+                    # listening for a `stop_bot` command WHILE trades are
+                    # actively being placed.
+                    stop_event = asyncio.Event()
+                    bot_task = asyncio.create_task(
+                        run_bot_loop(client, ws, stop_event, current_mode)
+                    )
 
             elif action == "stop_bot":
-                stop_bot = True
+                stop_event.set()
                 await stream(
                     ws,
                     {
@@ -579,7 +648,7 @@ async def receiver(ws: WebSocket):
                         "title": "STOP COMMAND RECEIVED",
                         "balance": await get_account_balance(client) if client else 0,
                         "metadata": {
-                            "message": "Bot stop command received. Stopping...",
+                            "message": "Bot stop command received. No new trades will be placed; stopping as soon as the current step completes.",
                             "status": "error",
                         },
                     },
@@ -667,6 +736,14 @@ async def receiver(ws: WebSocket):
 
     except WebSocketDisconnect:
         print("Client disconnected.")
+        # Make sure any running bot task is stopped and cleaned up
+        stop_event.set()
+        if bot_task and not bot_task.done():
+            bot_task.cancel()
+            try:
+                await bot_task
+            except (asyncio.CancelledError, Exception):
+                pass
         # Close all clients
         for mode, client in clients.items():
             if client:

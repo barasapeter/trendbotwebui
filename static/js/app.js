@@ -631,6 +631,8 @@ ws.onmessage = (event) => {
     // Only update if bot state changes
     const wasRunning = isBotRunning;
     isBotRunning = false;
+
+    waitingIndicator.classList.add("paused");
     
     // Reset button state if it was running and we got a non-running response
     if (wasRunning && !data.bot?.running && !data.trade_stream?.bot?.running) {
