@@ -126,7 +126,7 @@ body {
   border: 2px solid #FF0033;
   border-radius: 999px;
   padding-top: 6px;
-  padding-bottom: 6px;
+  padding: 9px 18px;
   text-align: center;
   width: 80px;
 }
