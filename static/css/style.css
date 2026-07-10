@@ -562,21 +562,21 @@ body {
   text-transform: uppercase;
   padding: 3px 10px;
   border-radius: 999px;
-  margin-left: 8px;
+  margin-left: 0px;
   vertical-align: middle;
 }
 
-.badge.profit { background: var(--profit-dim); color: var(--profit); }
-.badge.loss { background: var(--loss-dim); color: var(--loss); }
-.badge.warn { background: var(--warn-dim); color: var(--warn); }
-.badge.info { background: var(--info-dim); color: var(--info); }
+.badge.profit { background: var(--profit-dim); color: var(--profit); border: 0.5px solid var(--profit); }
+.badge.loss { background: var(--loss-dim); color: var(--loss); border: 0.5px solid var(--loss); }
+.badge.warn { background: var(--warn-dim); color: var(--warn); border: 0.5px solid var(--gold); }
+.badge.info { background: var(--info-dim); color: var(--info); border: 0.5px solid var(--info); }
 
 /* Card metric - big number */
 .card-metric {
   font-family: var(--font-display);
-  font-size: 21px;
-  font-weight: 600;
-  margin: 4px 0 2px;
+  font-size: 28px;
+  font-weight: 900;
+  margin: 2px;
 }
 .card-metric.profit { color: var(--profit); }
 .card-metric.loss { color: var(--loss); }

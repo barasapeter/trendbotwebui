@@ -734,7 +734,7 @@ async def run_bot_loop(
 
             cumulative_status_report = {
                 "widget": "cumulative_status",
-                "title": f"SESSIONS CUMULATIVE STATUS [After S{session_num}]",
+                "title": f"SESSIONS CUMULATIVE STATUS [S{session_num}]",
                 "balance": running_balance,
                 "pl": round(grand_total_pnl, 2),
                 "metadata": {
