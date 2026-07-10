@@ -380,7 +380,7 @@ const RENDERERS = {
   bot_shutdown_summary(data) {
     const m = data.metadata;
     const statusAccent = accentFor(m.status);
-    const card = makeCard(data.title, "gold", "shutdown");
+    const card = makeCard(data.title, "bg", "shutdown");
     card.querySelector(".card-title").appendChild(makeBadge(m.status, statusAccent));
     card.appendChild(
       makeFieldList([
@@ -390,7 +390,7 @@ const RENDERERS = {
         ["All-Time Net P&L", `${formatNumberWithCommas(m.all_time_net_pnl)} ${m.currency}`],
       ])
     );
-    pushFeedItem("gold", card);
+    pushFeedItem("bg", card);
   },
 };
 

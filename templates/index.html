@@ -20,7 +20,7 @@
             </div>
         </header>
 
-        <section class="readout" aria-label="Account readout">
+        <section class="readout" aria-label="Account readout" style="height: 100px;">
             <div class="readout-cell">
                 <span class="readout-label">Balance USD</span>
                 <span class="readout-value" id="balance">
@@ -52,13 +52,12 @@
         </div>
 
         <section class="panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-left: 15px;">
-                <h2 class="panel-header">Feed</h2>
-                <button id="stopBtn" class="btn-settings" style="display: none; margin: unset;">Stop</button>
 
-                
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; padding: unset; margin: unset;">
+                <h2 class="panel-header">Trade Feed</h2>
+                <button id="stopBtn" class="btn-settings" style="display: none; margin: unset;">Stop</button>
             </div>     
-            <div class="waiting-indicator" id="waitingIndicator">
+            <div class="waiting-indicator" id="waitingIndicator" style="padding: unset; margin: unset; margin-bottom: 10px;">
                 <span class="waiting-dots">
                     <span class="waiting-dot"></span>
                     <span class="waiting-dot"></span>
@@ -66,7 +65,7 @@
                 </span>
                 <span id="waitingText">Connecting…</span>
             </div>
-            <div class="feed-body" id="feedBody">
+            <div class="feed-body" id="feedBody" style="padding: unset; margin: unset;">
                 <!-- <p class="feed-empty" style="font-size: 10px;">
                     <strong>RISK WARNING</strong><br>
                     Follow recommended patterns and only stake what you can afford to lose.
