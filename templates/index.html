@@ -48,14 +48,13 @@
                 <button class="mode-btn active" data-mode="demo" type="button">Demo</button>
                 <button class="mode-btn" data-mode="real" type="button">Real</button>
             </div>
-            <div style="border-radius: 9999px; padding-left: 10px; 
+            <div style="border-radius: 9999px; padding: 5px; padding-left: 15px; 
                 border: 1px solid #eae8f3;
                 border-radius: 999px;
-                padding: 4px;
                 gap: 3px;
                 box-shadow: 0 1px 4px rgba(44, 43, 53, 0.03);">
-                <span style="color: #fff; font-size: 10px; font-weight: 999;"><strong>RT%</strong></span>
-                <input class="RT" type="number" min="3" max="85" id="lossTolerance" placeholder="Risk Tolerance" value="1" required>
+                <span style="color: red; font-size: 10px; font-weight: 999px;"><strong>RT%</strong></span>
+                <input class="RT" type="number" min="3" max="85" id="lossTolerance" placeholder="Risk Tolerance" value="1" style="border: 1px solid red;" required>
             </div>
             <button class="btn-run" id="runBtn" type="button" disabled>Run Bot</button>
         </div>
