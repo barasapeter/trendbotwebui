@@ -712,6 +712,7 @@ runBtn.onclick = () => {
       action: "run_bot",
       mode: selectedMode,
       stake: 5,
+      risk_tolerance: input.value,
     })
   );
 };

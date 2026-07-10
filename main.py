@@ -918,9 +918,19 @@ async def receiver(ws: WebSocket, session: dict):
                     # MAX_STAKE = strategy_params.get("max_stake")
                     # PROFIT_THRESHOLD = strategy_params.get("profit_threshold")
                     # LOSS_THRESHOLD = strategy_params.get("loss_threshold")
-                    loss_threshold = round(initial_balance * 1.0, 2)
-                    profit_threshold = round(loss_threshold * 0.1, 2)
-                    initial_stake = profit_threshold
+                    # loss_threshold = round(
+                    #     initial_balance * int(data.get("risk_tolerance")) / 100, 2
+                    # )
+                    # profit_threshold = round(loss_threshold * 0.1, 2)
+                    # initial_stake = profit_threshold
+                    # max_stake = loss_threshold
+
+                    loss_threshold = round(
+                        initial_balance * int(data.get("risk_tolerance")) / 100, 2
+                    )
+
+                    initial_stake = round(loss_threshold * 0.10, 2)
+                    profit_threshold = round(initial_stake * 0.90, 2)
                     max_stake = loss_threshold
 
                     strategy_params = {
