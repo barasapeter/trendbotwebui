@@ -15,9 +15,7 @@
                 <span class="conn-dot down" id="connDot"></span>
                 <span class="conn-label" id="connLabel">Connecting…</span>
             </div>
-            <div style="display:flex; align-items:center; gap:16px;">
-                <span>Config: <strong>Preset</strong></span>
-                
+            <div style="display:flex; align-items:center; gap:16px;">                
                 <button class="btn-settings" type="button">Settings</button>
             </div>
         </header>
@@ -54,9 +52,11 @@
         </div>
 
         <section class="panel">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2 class="panel-header" style="margin: 0;">Live Session Feed</h2>
-                <button id="stopBtn" class="btn-settings" style="display: none">Stop</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-left: 15px;">
+                <h2 class="panel-header">Feed</h2>
+                <button id="stopBtn" class="btn-settings" style="display: none; margin: unset;">Stop</button>
+
+                
             </div>     
             <div class="waiting-indicator" id="waitingIndicator">
                 <span class="waiting-dots">
@@ -67,10 +67,10 @@
                 <span id="waitingText">Connecting…</span>
             </div>
             <div class="feed-body" id="feedBody">
-                <p class="feed-empty">
+                <!-- <p class="feed-empty" style="font-size: 10px;">
                     <strong>RISK WARNING</strong><br>
-                    Follow reccomended patterns and only stake what you can afford to lose.
-                </p>
+                    Follow recommended patterns and only stake what you can afford to lose.
+                </p> -->
             </div>
         </section>
 

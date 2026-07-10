@@ -215,11 +215,11 @@ async def get_market_trend(client, symbol):
     if len(prices) >= 2:
         # Compare current tick to previous tick to detect immediate micro-direction
         if prices[-1] > prices[-2]:
-            return "CALL", "BULLISH MOMENTUM (Price Rising)"
+            return "CALL", "BULLISH MOMENTUM"
         elif prices[-1] < prices[-2]:
-            return "PUT", "BEARISH MOMENTUM (Price Dropping)"
+            return "PUT", "BEARISH MOMENTUM"
 
-    return "CALL", "STAGNANT MARKETS (No Edge Detected)"
+    return "CALL", "STAGNANT MARKETS"
 
 
 async def wait_for_contract_result(client, contract_id, stop_event):
@@ -298,7 +298,7 @@ async def wait_for_contract_result(client, contract_id, stop_event):
 
 
 async def stream(ws: WebSocket, data: dict):
-    await ws.send_json({"trade_stream": data} | {"bot": {"running": True}})
+    await ws.send_json({"trade_stream": data})
 
 
 # ==========================================
@@ -367,7 +367,7 @@ async def run_session(
             "max_stop_loss": f"-{LOSS_THRESHOLD} {CURRENCY}",
         },
     }
-    await stream(ws, session_initializer)
+    await stream(ws, session_initializer | {"bot": {"running": True}})
 
     while True:
         # ------------------------------------------------------------
@@ -388,7 +388,7 @@ async def run_session(
                     "status": "info",
                 },
             }
-            await stream(ws, bot_stopped)
+            await stream(ws, bot_stopped | {"bot": {"running": False}})
             break
 
         if total_profit_loss >= PROFIT_THRESHOLD:
@@ -403,7 +403,7 @@ async def run_session(
                     "status": "success",
                 },
             }
-            await stream(ws, target_profit_reached)
+            await stream(ws, target_profit_reached | {"bot": {"running": False}})
             break
         if total_profit_loss <= -LOSS_THRESHOLD:
             stop_loss_breached = {
@@ -415,7 +415,7 @@ async def run_session(
                     "session": session_num,
                 },
             }
-            await stream(ws, stop_loss_breached)
+            await stream(ws, stop_loss_breached | {"bot": {"running": False}})
             break
 
         trade_count += 1
@@ -454,7 +454,7 @@ async def run_session(
                     "status": "warning",
                 },
             }
-            await stream(ws, stop_loss_guardrail)
+            await stream(ws, stop_loss_guardrail | {"bot": {"running": True}})
             if remaining_budget <= 0:
                 no_loss_budget = {
                     "widget": "snackbar",
@@ -466,7 +466,7 @@ async def run_session(
                         "status": "warning",
                     },
                 }
-                await stream(ws, no_loss_budget)
+                await stream(ws, no_loss_budget | {"bot": {"running": False}})
                 break
             current_stake = round(remaining_budget, 2)
             stake_clamped = {
@@ -480,7 +480,7 @@ async def run_session(
                     "status": "info",
                 },
             }
-            await stream(ws, stake_clamped)
+            await stream(ws, stake_clamped | {"bot": {"running": True}})
 
         # Clean Logging Interface (Per-Trade Metrics Dashboard)
         session_summary = {
@@ -496,7 +496,7 @@ async def run_session(
                 "stake": current_stake,
             },
         }
-        await stream(ws, session_summary)
+        await stream(ws, session_summary | {"bot": {"running": True}})
 
         # Second stop check -- in case stop_bot arrived while we were doing
         # the (awaited, network-bound) trend lookup above. Still strictly
@@ -513,7 +513,7 @@ async def run_session(
                     "status": "info",
                 },
             }
-            await stream(ws, bot_stopped)
+            await stream(ws, bot_stopped | {"bot": {"running": False}})
             break
 
         # Send Execution Payload
@@ -550,7 +550,7 @@ async def run_session(
                     "status": "error",
                 },
             }
-            await stream(ws, order_rejected)
+            await stream(ws, order_rejected | {"bot": {"running": True}})
             await stream(
                 ws,
                 {
@@ -563,7 +563,8 @@ async def run_session(
                         "retry_in_seconds": 5,
                         "status": "info",
                     },
-                },
+                }
+                | {"bot": {"running": False}},
             )
             break
 
@@ -627,7 +628,7 @@ async def run_session(
             },
         }
 
-        await stream(ws, trade_result_summary)
+        await stream(ws, trade_result_summary | {"bot": {"running": True}})
 
         # Apply Risk Management Calculations (Martingale vs D'Alembert)
         if is_win:
@@ -659,7 +660,8 @@ async def run_session(
                             ),
                             "status": "error",
                         },
-                    },
+                    }
+                    | {"bot": {"running": True}},
                 )
                 current_stake = INITIAL_STAKE
 
@@ -685,7 +687,7 @@ async def run_session(
         },
     }
 
-    await stream(ws, session_summary_report)
+    await stream(ws, session_summary_report | {"bot": {"running": False}})
 
     return total_profit_loss
 
@@ -732,7 +734,7 @@ async def run_bot_loop(
 
             cumulative_status_report = {
                 "widget": "cumulative_status",
-                "title": f"SESSIONS CUMULATIVE STATUS (::S{session_num})",
+                "title": f"SESSIONS CUMULATIVE STATUS [After S{session_num}]",
                 "balance": running_balance,
                 "pl": round(grand_total_pnl, 2),
                 "metadata": {
@@ -797,7 +799,7 @@ async def run_bot_loop(
             },
         }
 
-        await stream(ws, bot_shutdown_summary)
+        await stream(ws, bot_shutdown_summary | {"bot": {"running": False}})
 
         # Close the client for the current mode
         await client.close()
