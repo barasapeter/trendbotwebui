@@ -926,7 +926,7 @@ async def receiver(ws: WebSocket, session: dict):
                     # max_stake = loss_threshold
 
                     loss_threshold = round(
-                        initial_balance * int(data.get("risk_tolerance")) / 100, 2
+                        initial_balance * float(data.get("risk_tolerance")) / 100, 2
                     )
 
                     initial_stake = round(loss_threshold * 0.10, 2)
