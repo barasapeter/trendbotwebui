@@ -1,20 +1,20 @@
 from importlib.metadata import version, PackageNotFoundError
 
-# (display name, actual package name)
 packages = [
-    ("fastapi", "fastapi"),
-    ("uvicorn[standard]", "uvicorn"),
-    ("websockets", "websockets"),
-    ("requests", "requests"),
-    ("python-dotenv", "python-dotenv"),
-    ("pydantic", "pydantic"),
+    "fastapi",
+    "requests",
+    "websockets",
+    "python-dotenv",  # pip package name
+    "uvicorn",
+    "jinja2",
+    "tzdata",
+    "itsdangerous",
 ]
 
-print("# requirements.txt")
-print()
+print("Installed package versions:\n")
 
-for display_name, package_name in packages:
+for package in packages:
     try:
-        print(f"{display_name}=={version(package_name)}")
+        print(f"{package:<15} {version(package)}")
     except PackageNotFoundError:
-        print(f"# {display_name} is not installed")
+        print(f"{package:<15} Not installed")
