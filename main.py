@@ -950,7 +950,9 @@ async def receiver(ws: WebSocket, session: dict):
                     )
 
                     initial_stake = round(loss_threshold * 0.10, 2)
-                    profit_threshold = round(initial_stake * 0.90, 2)
+                    profit_threshold = round(
+                        initial_stake * 1.0, 2
+                    )  # Was initially  round(initial_stake * 0.90, 2)
                     max_stake = loss_threshold
 
                     strategy_params = {
