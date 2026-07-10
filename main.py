@@ -493,6 +493,23 @@ async def run_session(
             }
             await stream(ws, stake_clamped | {"bot": {"running": True}})
 
+        payout = 90 / 100 * current_stake + current_stake
+        if payout > 10_000:
+            # clamp the stake
+            current_stake = round(10_000 / 1.9, 2)
+            stake2_clamped = {
+                "widget": "detailed_snackbar",
+                "title": "STAKE CLAMPED",
+                "balance": await get_account_balance(client),
+                "pl": round(total_profit_loss, 2),
+                "metadata": {
+                    "stake": current_stake,
+                    "message": f"Projected payout $({payout:.2f}) > $10,000. Stake clamped to ${current_stake:.2f}.",
+                    "status": "info",
+                },
+            }
+            await stream(ws, stake2_clamped | {"bot": {"running": True}})
+
         # Clean Logging Interface (Per-Trade Metrics Dashboard)
         session_summary = {
             "widget": "session_summary",
