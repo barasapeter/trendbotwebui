@@ -510,6 +510,9 @@ async def run_session(
             }
             await stream(ws, stake2_clamped | {"bot": {"running": True}})
 
+        if current_stake < 0.35:
+            current_stake = 0.35
+
         # Clean Logging Interface (Per-Trade Metrics Dashboard)
         session_summary = {
             "widget": "session_summary",
