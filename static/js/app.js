@@ -17,7 +17,7 @@ const input = document.getElementById("lossTolerance");
 
 input.addEventListener("input", () => {
     if (input.value === "") return;
-    input.value = Math.min(85, Math.max(3, Number(input.value)));
+    input.value = Math.min(85, Math.max(0.001, Number(input.value)));
 });
 
 // ==========================================================================
