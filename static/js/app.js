@@ -444,12 +444,23 @@ function formatNumber(value) {
   return num.toFixed(2);
 }
 
+// FIXED: formatPL now includes commas
 function formatPL(value) {
   if (value === undefined || value === null) return "+0.00";
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return "+0.00";
+  
+  // Format with commas and 2 decimal places
   const formatted = Math.abs(num).toFixed(2);
-  return num >= 0 ? `+${formatted}` : `-${formatted}`;
+  const parts = formatted.split('.');
+  const integerPart = parts[0];
+  const decimalPart = parts[1];
+  
+  // Add commas to integer part
+  const withCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const formattedWithCommas = `${withCommas}.${decimalPart}`;
+  
+  return num >= 0 ? `+${formattedWithCommas}` : `-${formattedWithCommas}`;
 }
 
 // ==========================================================================
