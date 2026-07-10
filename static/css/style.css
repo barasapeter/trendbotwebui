@@ -122,6 +122,19 @@ body {
   color: var(--text-dim);
 }
 
+.RT {
+  border: 1px solid #FF0033;
+  border-radius: 999px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  text-align: center;
+  width: 100px;
+}
+
+.RT:focus {
+    outline: none;
+}
+
 .btn-settings {
   background: var(--surface);
   border: 1px solid var(--border-strong);

@@ -13,6 +13,13 @@ const waitingIndicator = document.getElementById("waitingIndicator");
 const waitingText = document.getElementById("waitingText");
 let streamEnded = false;
 
+const input = document.getElementById("lossTolerance");
+
+input.addEventListener("input", () => {
+    if (input.value === "") return;
+    input.value = Math.min(85, Math.max(3, Number(input.value)));
+});
+
 // ==========================================================================
 // Mode state management with persistence
 // ==========================================================================
@@ -690,6 +697,11 @@ ws.onerror = () => {
 
 // Run button click handler
 runBtn.onclick = () => {
+  if (input.value == "") {
+    alert("Tisk tolerance % required");
+    input.focus();
+    return;
+  }
   if (ws.readyState !== WebSocket.OPEN) {
     return;
   }
