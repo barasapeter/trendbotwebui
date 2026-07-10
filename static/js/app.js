@@ -380,7 +380,7 @@ const RENDERERS = {
   bot_shutdown_summary(data) {
     const m = data.metadata;
     const statusAccent = accentFor(m.status);
-    const card = makeCard(data.title, "bg", "shutdown");
+    const card = makeCard(data.title, "profit-dim", "shutdown");
     card.querySelector(".card-title").appendChild(makeBadge(m.status, statusAccent));
     card.appendChild(
       makeFieldList([
@@ -390,7 +390,7 @@ const RENDERERS = {
         ["All-Time Net P&L", `${formatNumberWithCommas(m.all_time_net_pnl)} ${m.currency}`],
       ])
     );
-    pushFeedItem("bg", card);
+    pushFeedItem("gold", card);
   },
 };
 
@@ -577,7 +577,8 @@ ws.onmessage = (event) => {
     if (data.trade_stream.title == "STOP COMMAND RECEIVED") {
       stopBtn.textContent = "Bot Stopped";
       setTimeout(() => {
-          stopBtn.style.display = "none";
+          // stopBtn.style.display = "none";
+          stopBtn.disabled=true;
       }, 1000);
     } else {
       
@@ -601,7 +602,7 @@ ws.onmessage = (event) => {
     
     // Check for end of stream
     if (data.trade_stream.end_of_stream) {
-      waitingText.textContent = "Trade Completed";
+      waitingText.textContent = "";
       waitingIndicator.classList.add("paused");
       streamEnded = true;
       updateRunButton(RunButtonState.READY);

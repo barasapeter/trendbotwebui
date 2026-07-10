@@ -615,10 +615,12 @@ body {
 .skeleton {
   display: inline-block;
   background: linear-gradient(
-    90deg,
-    var(--border) 25%,
-    var(--surface-2) 50%,
-    var(--border) 75%
+    135deg,
+    var(--surface) 0%,
+    color-mix(in srgb, var(--surface-2) 75%, white) 35%,
+    color-mix(in srgb, var(--surface) 90%, white) 50%,
+    color-mix(in srgb, var(--surface-2) 75%, white) 65%,
+    var(--surface) 100%
   );
   background-size: 30% 10%;
   animation: shimmer 1.5s ease-in-out infinite;
