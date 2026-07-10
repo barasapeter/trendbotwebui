@@ -5,3 +5,4 @@ dotenv
 uvicorn
 jinja2
 tzdata
+itsdangerous
