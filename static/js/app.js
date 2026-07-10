@@ -530,7 +530,8 @@ function updateConnectionIndicators(connected) {
 // ==========================================================================
 // WebSocket wiring
 // ==========================================================================
-const ws = new WebSocket(`ws://${window.location.host}/ws`);
+const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
 
 // Initialize UI
 updateRunButton(RunButtonState.CONNECTING);
