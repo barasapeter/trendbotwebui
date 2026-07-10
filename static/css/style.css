@@ -170,7 +170,7 @@ body {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  padding: 36px 38px;
+  padding: 26px 28px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
