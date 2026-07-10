@@ -305,7 +305,12 @@ async def stream(ws: WebSocket, data: dict):
 # 3. SINGLE SESSION EXECUTION ENGINE
 # ==========================================
 async def run_session(
-    client, session_num, ws: WebSocket, stop_event: asyncio.Event, session_state: dict
+    client,
+    session_num,
+    ws: WebSocket,
+    stop_event: asyncio.Event,
+    session_state: dict,
+    strategy_params: dict,
 ):
     """
     Runs one full session (until profit target or stop-loss is hit) and
@@ -338,11 +343,17 @@ async def run_session(
     # Options: "TREND_FOLLOW", "CALL" (Always Rise), "PUT" (Always Fall), "ALTERNATE"
     DIRECTION_MODE = "TREND_FOLLOW"
 
+    # # Strategy Specific Parameters
+    # INITIAL_STAKE = 5  # 100 × 0.05
+    # MAX_STAKE = 50  # 1000 × 0.05
+    # PROFIT_THRESHOLD = 5 or 5  # 100 × 0.05
+    # LOSS_THRESHOLD = 50  # 1000 × 0.05
+
     # Strategy Specific Parameters
-    INITIAL_STAKE = 5  # 100 × 0.05
-    MAX_STAKE = 50  # 1000 × 0.05
-    PROFIT_THRESHOLD = 5 or 5  # 100 × 0.05
-    LOSS_THRESHOLD = 50  # 1000 × 0.05
+    INITIAL_STAKE = strategy_params.get("initial_stake")
+    MAX_STAKE = strategy_params.get("max_stake")
+    PROFIT_THRESHOLD = strategy_params.get("profit_threshold")
+    LOSS_THRESHOLD = strategy_params.get("loss_threshold")
 
     STAKE_MULTIPLIER = 2  # [Martingale] Multiplier factor on loss
     STAKE_INCREMENT = 1.0  # [D'Alembert] Unit unit scale change
@@ -698,6 +709,7 @@ async def run_bot_loop(
     stop_event: asyncio.Event,
     current_mode: str,
     session_state: dict,
+    strategy_params: dict,
 ):
     """
     Runs the multi-session bot loop. This is launched as its OWN background
@@ -724,7 +736,7 @@ async def run_bot_loop(
 
             session_num += 1
             session_pnl = await run_session(
-                client, session_num, ws, stop_event, session_state
+                client, session_num, ws, stop_event, session_state, strategy_params
             )
             grand_total_pnl += session_pnl
 
@@ -900,11 +912,33 @@ async def receiver(ws: WebSocket, session: dict):
                     # (and the `await ws.receive_json()` below) to keep
                     # listening for a `stop_bot` command WHILE trades are
                     # actively being placed.
+
+                    # # Strategy Specific Parameters
+                    # INITIAL_STAKE = strategy_params.get("initial_stake")
+                    # MAX_STAKE = strategy_params.get("max_stake")
+                    # PROFIT_THRESHOLD = strategy_params.get("profit_threshold")
+                    # LOSS_THRESHOLD = strategy_params.get("loss_threshold")
+                    loss_threshold = round(initial_balance * 0.5, 2)
+                    profit_threshold = round(loss_threshold * 0.1, 2)
+                    initial_stake = profit_threshold
+                    max_stake = loss_threshold
+
+                    strategy_params = {
+                        "initial_stake": (initial_stake),
+                        "max_stake": max_stake,
+                        "profit_threshold": profit_threshold,
+                        "loss_threshold": loss_threshold,
+                    }
                     stop_event = asyncio.Event()
                     session_state = {"order_in_flight": False}
                     bot_task = asyncio.create_task(
                         run_bot_loop(
-                            client, ws, stop_event, current_mode, session_state
+                            client,
+                            ws,
+                            stop_event,
+                            current_mode,
+                            session_state,
+                            strategy_params,
                         )
                     )
 
