@@ -503,7 +503,7 @@ async def run_session(
                 "pl": round(total_profit_loss, 2),
                 "metadata": {
                     "stake": current_stake,
-                    "message": f"Projected payout $({payout:.2f}) > $10,000. Stake clamped to ${current_stake:.2f}.",
+                    "message": f"Projected payout > $10,000. Stake clamped to ${current_stake:.2f}.",
                     "status": "info",
                 },
             }
