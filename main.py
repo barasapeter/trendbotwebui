@@ -493,10 +493,9 @@ async def run_session(
             }
             await stream(ws, stake_clamped | {"bot": {"running": True}})
 
-        payout = 40 / 100 * current_stake + current_stake
-        if payout > 10_000:
-            # clamp the stake
-            current_stake = round(10_000 / 1.9, 2)
+        
+        if current_stake > 5000:
+            current_stake = 5000
             stake2_clamped = {
                 "widget": "detailed_snackbar",
                 "title": "STAKE CLAMPED",
