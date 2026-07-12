@@ -719,6 +719,8 @@ function updateBalanceAndPL(balance, pl) {
         balanceEl.style.opacity = '0';
         requestAnimationFrame(() => {
           balanceEl.style.opacity = '1';
+          // Update risk indicator after balance is shown
+          updateRiskIndicatorFromInput();
         });
       }, 100);
     }
@@ -791,20 +793,6 @@ showSkeleton(balanceEl, 'number');
 showSkeleton(plEl, 'number');
 
 // ==========================================================================
-// Restore risk tolerance from storage
-// ==========================================================================
-function restoreRiskTolerance() {
-    const storedValue = loadRiskTolerance();
-    if (storedValue !== '') {
-        riskInput.value = storedValue;
-        setTimeout(() => {
-            updateRiskIndicatorFromInput();
-        }, 100);
-        console.log(`Restored risk tolerance: ${storedValue}%`);
-    }
-}
-
-// ==========================================================================
 // WebSocket event handlers
 // ==========================================================================
 ws.onopen = () => {
@@ -824,9 +812,25 @@ ws.onopen = () => {
     updateRunButton(RunButtonState.INITIALIZING);
   }
   
+  // Restore risk tolerance from storage when connection opens
+  const storedRiskValue = loadRiskTolerance();
+  if (storedRiskValue !== '') {
+    riskInput.value = storedRiskValue;
+    console.log(`Restored risk tolerance on connection: ${storedRiskValue}%`);
+  }
+  
+  // Try to update risk indicator multiple times as balance loads
   setTimeout(() => {
     updateRiskIndicatorFromInput();
-  }, 400);
+  }, 300);
+  
+  setTimeout(() => {
+    updateRiskIndicatorFromInput();
+  }, 800);
+  
+  setTimeout(() => {
+    updateRiskIndicatorFromInput();
+  }, 1500);
 };
 
 ws.onmessage = (event) => {
@@ -1032,7 +1036,7 @@ function createRiskIndicator() {
         transition: 'color 0.3s ease'
     });
     
-    valueDisplay.textContent = '-';
+    valueDisplay.textContent = '';
     Object.assign(valueDisplay.style, {
         color: 'var(--text-faint, #a29fae)',
         background: 'var(--surface, #ffffff)',
@@ -1087,7 +1091,7 @@ function updateRiskIndicator(percentage, balance) {
             textAlign: 'left'
         });
         
-        valueDisplay.textContent = `${formattedValue} USD`;
+        valueDisplay.textContent = `${formattedValue}`;
         
         if (percentage <= 2) {
             valueDisplay.style.color = 'var(--profit, #1fa971)';
@@ -1101,7 +1105,7 @@ function updateRiskIndicator(percentage, balance) {
         indicator.style.transform = 'scale(1)';
         
     } else {
-        valueDisplay.textContent = '-';
+        valueDisplay.textContent = '';
         Object.assign(valueDisplay.style, {
             color: 'var(--text-faint, #a29fae)',
             background: 'var(--surface, #ffffff)',
@@ -1118,12 +1122,13 @@ function updateRiskIndicator(percentage, balance) {
 // Update risk indicator from input value - FIXED
 // ==========================================================================
 function updateRiskIndicatorFromInput() {
+    // If there's no value in the input, clear the indicator
     if (riskInput.value === '') {
         const indicator = document.querySelector('.risk-indicator');
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
             if (valueDisplay) {
-                valueDisplay.textContent = '-';
+                valueDisplay.textContent = '';
                 Object.assign(valueDisplay.style, {
                     color: 'var(--text-faint, #a29fae)',
                     background: 'var(--surface, #ffffff)',
@@ -1140,15 +1145,25 @@ function updateRiskIndicatorFromInput() {
     
     const val = parseFloat(riskInput.value);
     if (!isNaN(val) && val > 0) {
+        // Save the value to localStorage
         saveRiskTolerance(riskInput.value);
+        
         // Get the balance, removing any skeleton content
         let balanceText = balanceEl.textContent;
-        // Skip if it's a non-breaking space (skeleton placeholder)
-        if (balanceText === '\u00A0' || balanceText === '') {
-            // Balance not loaded yet, wait for it
+        
+        // Check if balance is still loading (skeleton placeholder or empty)
+        if (balanceText === '\u00A0' || balanceText === '' || balanceText === '0.00') {
+            // Balance not loaded yet, we'll try again later
             console.log('Balance not loaded yet, risk indicator will update when balance appears');
+            
+            // Set a timeout to try again in 500ms
+            setTimeout(() => {
+                updateRiskIndicatorFromInput();
+            }, 500);
             return;
         }
+        
+        // Remove commas and parse
         const balance = parseFloat(balanceText.replace(/,/g, ''));
         if (!isNaN(balance) && balance > 0) {
             updateRiskIndicator(val, balance);
@@ -1158,18 +1173,19 @@ function updateRiskIndicatorFromInput() {
             if (indicator) {
                 const valueDisplay = indicator.querySelector('.risk-value');
                 if (valueDisplay) {
-                    valueDisplay.textContent = '-';
+                    valueDisplay.textContent = '';
                     valueDisplay.style.color = 'var(--text-faint, #a29fae)';
                     indicator.style.opacity = '0.6';
                 }
             }
         }
     } else {
+        // Invalid value, clear indicator
         const indicator = document.querySelector('.risk-indicator');
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
             if (valueDisplay) {
-                valueDisplay.textContent = '-';
+                valueDisplay.textContent = '';
                 Object.assign(valueDisplay.style, {
                     color: 'var(--text-faint, #a29fae)',
                     background: 'var(--surface, #ffffff)',
@@ -1191,7 +1207,7 @@ function initializeRiskIndicator() {
     createRiskIndicator();
     setTimeout(() => {
         updateRiskIndicatorFromInput();
-    }, 400);
+    }, 100);
 }
 
 // ==========================================================================
@@ -1235,7 +1251,7 @@ riskInput.addEventListener('blur', function() {
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
             if (valueDisplay) {
-                valueDisplay.textContent = '-';
+                valueDisplay.textContent = '';
                 Object.assign(valueDisplay.style, {
                     color: 'var(--text-faint, #a29fae)',
                     background: 'var(--surface, #ffffff)',
@@ -1252,7 +1268,7 @@ riskInput.addEventListener('blur', function() {
 });
 
 // ==========================================================================
-// Page load handlers
+// Page load handlers - FIXED
 // ==========================================================================
 document.addEventListener('DOMContentLoaded', () => {
   showSkeleton(balanceEl, 'number');
@@ -1262,14 +1278,31 @@ document.addEventListener('DOMContentLoaded', () => {
     showFeedSkeleton(3);
   }
   
-  initializeRiskIndicator();
+  // First, restore the risk tolerance value from storage
+  const storedRiskValue = loadRiskTolerance();
+  if (storedRiskValue !== '') {
+    riskInput.value = storedRiskValue;
+    console.log(`Restored risk tolerance on page load: ${storedRiskValue}%`);
+  }
+  
+  // Create the risk indicator
+  createRiskIndicator();
+  
+  // Try to update the risk indicator, but it will wait for balance
+  setTimeout(() => {
+    updateRiskIndicatorFromInput();
+  }, 100);
+  
+  setTimeout(() => {
+    updateRiskIndicatorFromInput();
+  }, 500);
   
   setTimeout(() => {
     const hasRestoredLogs = restoreLogsFromStorage();
     if (hasRestoredLogs) {
       hideFeedSkeleton();
     }
-  }, 100);
+  }, 200);
 });
 
 // Handle page unload

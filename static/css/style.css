@@ -125,7 +125,7 @@ body {
 .RT {
   border: 1px solid #eae8f3;
   border-radius: 999px;
-  padding: 6px;
+  padding: 9px 18px;
 }
 
 .RT:focus {
@@ -603,6 +603,7 @@ body {
   margin-bottom: unset;
   border: 1px solid var(--border);
   max-width: fit-content;
+  display: none;
 }
 
 /* Shutdown summary */
@@ -741,7 +742,6 @@ body {
 .RT {
   border: 1px solid #eae8f3;
   border-radius: 999px;
-  padding: 6px;
 }
 
 .RT:focus {
