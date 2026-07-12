@@ -56,7 +56,7 @@
             html = `
                 <div class="step-badge"><i class="fas fa-key"></i> Step 1 of 4</div>
                 <div class="step-title">Enter your API token</div>
-                <div class="step-desc">Your secret key to access the Amy platform.</div>
+                <div class="step-desc">On your Deriv App, or Web, Click Accounts > API Token > Create.</div>
                 <div class="input-group">
                     <label><i class="fas fa-lock"></i> API Token</label>
                     <input type="text" id="apiTokenInput" placeholder="sk_live_..." value="${state.api_token}">
@@ -69,7 +69,7 @@
             html = `
                 <div class="step-badge"><i class="fas fa-cube"></i> Step 2 of 4</div>
                 <div class="step-title">Your App ID</div>
-                <div class="step-desc">The unique identifier for your application.</div>
+                <div class="step-desc">Create app ID <a href="https://developers.deriv.com/dashboard/">here</a>. Make sure you are logged in, click on Registered Apps > Create New App > Native App</div>
                 <div class="input-group">
                     <label><i class="fas fa-qrcode"></i> App ID</label>
                     <input type="text" id="appIdInput" placeholder="app_abc123..." value="${state.app_id}">
@@ -83,7 +83,7 @@
             html = `
                 <div class="step-badge"><i class="fas fa-envelope"></i> Step 3 of 4</div>
                 <div class="step-title">Your email address</div>
-                <div class="step-desc">We'll use this to personalize your experience.</div>
+                <div class="step-desc">Use your email adress. Recommended for account personalization.</div>
                 <div class="input-group">
                     <label><i class="fas fa-at"></i> Email</label>
                     <input type="email" id="emailInput" placeholder="you@example.com" value="${state.email}">

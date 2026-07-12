@@ -1032,7 +1032,7 @@ function createRiskIndicator() {
         transition: 'color 0.3s ease'
     });
     
-    valueDisplay.textContent = '';
+    valueDisplay.textContent = '-';
     Object.assign(valueDisplay.style, {
         color: 'var(--text-faint, #a29fae)',
         background: 'var(--surface, #ffffff)',
@@ -1087,7 +1087,7 @@ function updateRiskIndicator(percentage, balance) {
             textAlign: 'left'
         });
         
-        valueDisplay.textContent = `${formattedValue}`;
+        valueDisplay.textContent = `${formattedValue} USD`;
         
         if (percentage <= 2) {
             valueDisplay.style.color = 'var(--profit, #1fa971)';
@@ -1101,7 +1101,7 @@ function updateRiskIndicator(percentage, balance) {
         indicator.style.transform = 'scale(1)';
         
     } else {
-        valueDisplay.textContent = '';
+        valueDisplay.textContent = '-';
         Object.assign(valueDisplay.style, {
             color: 'var(--text-faint, #a29fae)',
             background: 'var(--surface, #ffffff)',
@@ -1115,7 +1115,7 @@ function updateRiskIndicator(percentage, balance) {
 }
 
 // ==========================================================================
-// Update risk indicator from input value
+// Update risk indicator from input value - FIXED
 // ==========================================================================
 function updateRiskIndicatorFromInput() {
     if (riskInput.value === '') {
@@ -1123,7 +1123,7 @@ function updateRiskIndicatorFromInput() {
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
             if (valueDisplay) {
-                valueDisplay.textContent = '';
+                valueDisplay.textContent = '-';
                 Object.assign(valueDisplay.style, {
                     color: 'var(--text-faint, #a29fae)',
                     background: 'var(--surface, #ffffff)',
@@ -1141,17 +1141,35 @@ function updateRiskIndicatorFromInput() {
     const val = parseFloat(riskInput.value);
     if (!isNaN(val) && val > 0) {
         saveRiskTolerance(riskInput.value);
-        const balanceText = balanceEl.textContent;
+        // Get the balance, removing any skeleton content
+        let balanceText = balanceEl.textContent;
+        // Skip if it's a non-breaking space (skeleton placeholder)
+        if (balanceText === '\u00A0' || balanceText === '') {
+            // Balance not loaded yet, wait for it
+            console.log('Balance not loaded yet, risk indicator will update when balance appears');
+            return;
+        }
         const balance = parseFloat(balanceText.replace(/,/g, ''));
         if (!isNaN(balance) && balance > 0) {
             updateRiskIndicator(val, balance);
+        } else {
+            // Balance is 0 or invalid, hide indicator
+            const indicator = document.querySelector('.risk-indicator');
+            if (indicator) {
+                const valueDisplay = indicator.querySelector('.risk-value');
+                if (valueDisplay) {
+                    valueDisplay.textContent = '-';
+                    valueDisplay.style.color = 'var(--text-faint, #a29fae)';
+                    indicator.style.opacity = '0.6';
+                }
+            }
         }
     } else {
         const indicator = document.querySelector('.risk-indicator');
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
             if (valueDisplay) {
-                valueDisplay.textContent = '';
+                valueDisplay.textContent = '-';
                 Object.assign(valueDisplay.style, {
                     color: 'var(--text-faint, #a29fae)',
                     background: 'var(--surface, #ffffff)',
@@ -1217,7 +1235,7 @@ riskInput.addEventListener('blur', function() {
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
             if (valueDisplay) {
-                valueDisplay.textContent = '';
+                valueDisplay.textContent = '-';
                 Object.assign(valueDisplay.style, {
                     color: 'var(--text-faint, #a29fae)',
                     background: 'var(--surface, #ffffff)',
