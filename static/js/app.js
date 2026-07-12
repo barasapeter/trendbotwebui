@@ -11,8 +11,237 @@ const plEl = document.getElementById("PL");
 const modeButtons = document.querySelectorAll(".mode-btn");
 const waitingIndicator = document.getElementById("waitingIndicator");
 const waitingText = document.getElementById("waitingText");
-const riskInput = document.getElementById("lossTolerance"); // Renamed to avoid conflict
+const riskInput = document.getElementById("lossTolerance");
 let streamEnded = false;
+
+// ==========================================================================
+// Log Storage - Persistence
+// ==========================================================================
+const STORAGE_KEY = 'trade_stream_logs';
+const RT_STORAGE_KEY = 'risk_tolerance_value';
+const MAX_STORED_LOGS = 1000; // Limit to prevent excessive storage
+
+function saveLogsToStorage(logs) {
+    try {
+        // Keep only the last MAX_STORED_LOGS entries
+        if (logs.length > MAX_STORED_LOGS) {
+            logs = logs.slice(-MAX_STORED_LOGS);
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
+    } catch (e) {
+        console.warn('Failed to save logs to localStorage:', e);
+        // If storage is full, clear it and try again
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
+        } catch (e2) {
+            console.warn('Failed to save logs even after clearing:', e2);
+        }
+    }
+}
+
+function loadLogsFromStorage() {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn('Failed to load logs from localStorage:', e);
+    }
+    return [];
+}
+
+function clearStoredLogs() {
+    localStorage.removeItem(STORAGE_KEY);
+}
+
+// ==========================================================================
+// Risk Tolerance Storage
+// ==========================================================================
+function saveRiskTolerance(value) {
+    try {
+        if (value !== undefined && value !== null && value !== '') {
+            localStorage.setItem(RT_STORAGE_KEY, String(value));
+        } else {
+            localStorage.removeItem(RT_STORAGE_KEY);
+        }
+    } catch (e) {
+        console.warn('Failed to save risk tolerance:', e);
+    }
+}
+
+function loadRiskTolerance() {
+    try {
+        const stored = localStorage.getItem(RT_STORAGE_KEY);
+        if (stored !== null) {
+            return stored;
+        }
+    } catch (e) {
+        console.warn('Failed to load risk tolerance:', e);
+    }
+    return '';
+}
+
+function clearRiskTolerance() {
+    localStorage.removeItem(RT_STORAGE_KEY);
+}
+
+// ==========================================================================
+// Feed primitives - Modified to support restoration
+// ==========================================================================
+let logEntries = []; // In-memory store of log entries
+
+function clearEmptyState() {
+    const empty = feedBody.querySelector(".feed-empty");
+    if (empty) empty.remove();
+}
+
+function makeFieldList(fields) {
+    const dl = document.createElement("dl");
+    dl.className = "field-list";
+    fields.forEach(([label, value]) => {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+    });
+    return dl;
+}
+
+function makeBadge(text, accent) {
+    const span = document.createElement("span");
+    span.className = `badge ${accent}`;
+    span.textContent = text;
+    return span;
+}
+
+// Store log entry with timestamp
+function storeLogEntry(accent, cardEl, logData) {
+    const entry = {
+        timestamp: new Date().toISOString(),
+        accent: accent,
+        title: logData?.title || 'Unknown',
+        widget: logData?.widget || 'unknown',
+        metadata: logData?.metadata || {},
+        html: cardEl.outerHTML // Store HTML for restoration
+    };
+    
+    logEntries.push(entry);
+    
+    // Keep only last MAX_STORED_LOGS entries
+    if (logEntries.length > MAX_STORED_LOGS) {
+        logEntries = logEntries.slice(-MAX_STORED_LOGS);
+    }
+    
+    saveLogsToStorage(logEntries);
+}
+
+function pushFeedItem(accent, cardEl, logData = null) {
+    clearEmptyState();
+    if (ws.readyState === WebSocket.OPEN) setWaiting("watching");
+
+    const item = document.createElement("div");
+    item.className = "feed-item";
+
+    const rail = document.createElement("div");
+    rail.className = "feed-rail";
+    const dot = document.createElement("div");
+    dot.className = `feed-dot ${accent}`;
+    const line = document.createElement("div");
+    line.className = `feed-line ${accent}`;
+    rail.appendChild(dot);
+    rail.appendChild(line);
+
+    item.appendChild(rail);
+    item.appendChild(cardEl);
+
+    feedBody.prepend(item);
+    
+    // Store log for persistence (if logData provided)
+    if (logData) {
+        storeLogEntry(accent, cardEl, logData);
+    }
+}
+
+function pushLogLine(text, color) {
+    clearEmptyState();
+    const line = document.createElement("div");
+    line.className = "log-line";
+    if (color) line.style.color = color;
+    line.textContent = text;
+    feedBody.prepend(line);
+    
+    // Store log line
+    const entry = {
+        timestamp: new Date().toISOString(),
+        type: 'log_line',
+        text: text,
+        color: color || null
+    };
+    
+    logEntries.push(entry);
+    if (logEntries.length > MAX_STORED_LOGS) {
+        logEntries = logEntries.slice(-MAX_STORED_LOGS);
+    }
+    saveLogsToStorage(logEntries);
+}
+
+// ==========================================================================
+// Restore logs from storage on page load
+// ==========================================================================
+function restoreLogsFromStorage() {
+    const storedLogs = loadLogsFromStorage();
+    if (storedLogs && storedLogs.length > 0) {
+        logEntries = storedLogs;
+        
+        // Clear the feed body
+        feedBody.innerHTML = '';
+        clearEmptyState();
+        
+        // Restore each log entry
+        storedLogs.forEach(entry => {
+            if (entry.type === 'log_line') {
+                // Restore log line
+                const line = document.createElement("div");
+                line.className = "log-line";
+                if (entry.color) line.style.color = entry.color;
+                line.textContent = entry.text;
+                feedBody.prepend(line);
+            } else if (entry.html) {
+                // Restore card from stored HTML
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = entry.html;
+                const cardEl = tempDiv.firstElementChild;
+                if (cardEl) {
+                    // Reconstruct the feed item
+                    const item = document.createElement("div");
+                    item.className = "feed-item";
+
+                    const rail = document.createElement("div");
+                    rail.className = "feed-rail";
+                    const dot = document.createElement("div");
+                    dot.className = `feed-dot ${entry.accent}`;
+                    const line = document.createElement("div");
+                    line.className = `feed-line ${entry.accent}`;
+                    rail.appendChild(dot);
+                    rail.appendChild(line);
+
+                    item.appendChild(rail);
+                    item.appendChild(cardEl);
+
+                    feedBody.prepend(item);
+                }
+            }
+        });
+        
+        console.log(`Restored ${storedLogs.length} log entries from storage`);
+        return true;
+    }
+    return false;
+}
 
 // ==========================================================================
 // Mode state management with persistence
@@ -170,57 +399,6 @@ function accentFor(status) {
   return ACCENT[status] || "info";
 }
 
-// ==========================================================================
-// Feed primitives
-// ==========================================================================
-function clearEmptyState() {
-  const empty = feedBody.querySelector(".feed-empty");
-  if (empty) empty.remove();
-}
-
-function makeFieldList(fields) {
-  const dl = document.createElement("dl");
-  dl.className = "field-list";
-  fields.forEach(([label, value]) => {
-    const dt = document.createElement("dt");
-    dt.textContent = label;
-    const dd = document.createElement("dd");
-    dd.textContent = value;
-    dl.appendChild(dt);
-    dl.appendChild(dd);
-  });
-  return dl;
-}
-
-function makeBadge(text, accent) {
-  const span = document.createElement("span");
-  span.className = `badge ${accent}`;
-  span.textContent = text;
-  return span;
-}
-
-function pushFeedItem(accent, cardEl) {
-  clearEmptyState();
-  if (ws.readyState === WebSocket.OPEN) setWaiting("watching");
-
-  const item = document.createElement("div");
-  item.className = "feed-item";
-
-  const rail = document.createElement("div");
-  rail.className = "feed-rail";
-  const dot = document.createElement("div");
-  dot.className = `feed-dot ${accent}`;
-  const line = document.createElement("div");
-  line.className = `feed-line ${accent}`;
-  rail.appendChild(dot);
-  rail.appendChild(line);
-
-  item.appendChild(rail);
-  item.appendChild(cardEl);
-
-  feedBody.prepend(item);
-}
-
 function makeCard(title, accent, extraClass = "") {
   const card = document.createElement("div");
   card.className = `feed-card ${accent} ${extraClass}`.trim();
@@ -232,7 +410,7 @@ function makeCard(title, accent, extraClass = "") {
 }
 
 // ==========================================================================
-// Widget renderers
+// Widget renderers - Modified to pass log data
 // ==========================================================================
 const RENDERERS = {
   session_initializer(data) {
@@ -247,7 +425,7 @@ const RENDERERS = {
         ["Max Stop Loss", formatNumberWithCommas(m.max_stop_loss)],
       ])
     );
-    pushFeedItem("info", card);
+    pushFeedItem("info", card, data);
   },
 
   snackbar(data) {
@@ -257,7 +435,7 @@ const RENDERERS = {
     p.className = "card-message";
     p.textContent = data.metadata.message;
     card.appendChild(p);
-    pushFeedItem(accent, card);
+    pushFeedItem(accent, card, data);
   },
 
   detailed_snackbar(data) {
@@ -274,7 +452,7 @@ const RENDERERS = {
         ["Remaining Loss Budget", formatNumberWithCommas(m.remaining_loss_budget)],
       ])
     );
-    pushFeedItem(accent, card);
+    pushFeedItem(accent, card, data);
   },
 
   session_summary(data) {
@@ -291,7 +469,7 @@ const RENDERERS = {
           ["Net Delta", `${formatNumberWithCommas(m.net_delta)} ${m.currency}`],
         ])
       );
-      pushFeedItem(accent, card);
+      pushFeedItem(accent, card, data);
       return;
     }
 
@@ -304,7 +482,7 @@ const RENDERERS = {
         ["Stake", `${formatNumberWithCommas(m.stake)} ${m.currency}`],
       ])
     );
-    pushFeedItem("info", card);
+    pushFeedItem("info", card, data);
   },
 
   trade_result(data) {
@@ -327,7 +505,7 @@ const RENDERERS = {
         ["Session Net P&L", `${formatNumberWithCommas(m.session_net_pnl)} ${m.currency}`],
       ])
     );
-    pushFeedItem(accent, card);
+    pushFeedItem(accent, card, data);
   },
 
   risk_alert(data) {
@@ -344,7 +522,7 @@ const RENDERERS = {
         ["Maximum Allowed Stake", formatNumberWithCommas(m.max_stake)],
       ])
     );
-    pushFeedItem(accent, card);
+    pushFeedItem(accent, card, data);
   },
 
   cumulative_status(data) {
@@ -358,7 +536,7 @@ const RENDERERS = {
         ["Cumulative Net P&L", `${formatNumberWithCommas(m.cumulative_net_pnl)} ${m.currency}`],
       ])
     );
-    pushFeedItem(accent, card);
+    pushFeedItem(accent, card, data);
   },
 
   notification(data) {
@@ -375,7 +553,7 @@ const RENDERERS = {
     if (m.signal !== undefined) extra.push(["Signal", m.signal]);
     if (extra.length) card.appendChild(makeFieldList(extra));
 
-    pushFeedItem(accent, card);
+    pushFeedItem(accent, card, data);
   },
 
   bot_shutdown_summary(data) {
@@ -391,25 +569,13 @@ const RENDERERS = {
         ["All-Time Net P&L", `${formatNumberWithCommas(m.all_time_net_pnl)} ${m.currency}`],
       ])
     );
-    pushFeedItem("gold", card);
+    pushFeedItem("gold", card, data);
   },
 };
 
 function renderTradeStream(ts) {
   const renderer = RENDERERS[ts.widget];
   if (renderer) renderer(ts);
-}
-
-// ==========================================================================
-// Plain system log lines
-// ==========================================================================
-function pushLogLine(text, color) {
-  clearEmptyState();
-  const line = document.createElement("div");
-  line.className = "log-line";
-  if (color) line.style.color = color;
-  line.textContent = text;
-  feedBody.prepend(line);
 }
 
 // ==========================================================================
@@ -438,19 +604,16 @@ function formatNumber(value) {
   return num.toFixed(2);
 }
 
-// FIXED: formatPL now includes commas
 function formatPL(value) {
   if (value === undefined || value === null) return "+0.00";
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return "+0.00";
   
-  // Format with commas and 2 decimal places
   const formatted = Math.abs(num).toFixed(2);
   const parts = formatted.split('.');
   const integerPart = parts[0];
   const decimalPart = parts[1];
   
-  // Add commas to integer part
   const withCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const formattedWithCommas = `${withCommas}.${decimalPart}`;
   
@@ -555,7 +718,40 @@ connLabel.textContent = "Connecting...";
 showSkeleton(balanceEl, 'number');
 showSkeleton(plEl, 'number');
 
+// ==========================================================================
+// Restore risk tolerance from storage
+// ==========================================================================
+function restoreRiskTolerance() {
+    const storedValue = loadRiskTolerance();
+    if (storedValue !== '') {
+        riskInput.value = storedValue;
+        // Trigger update of risk indicator
+        setTimeout(() => {
+            updateRiskIndicatorFromInput();
+        }, 100);
+        console.log(`Restored risk tolerance: ${storedValue}%`);
+    }
+}
+
+// ==========================================================================
+// Restore logs from storage on page load
+// ==========================================================================
+const hasRestoredLogs = restoreLogsFromStorage();
+
+// If no logs restored, show empty state
+if (!hasRestoredLogs) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "feed-empty";
+    emptyState.textContent = "No logs yet. Start a bot run to see activity.";
+    feedBody.appendChild(emptyState);
+}
+
+// Restore risk tolerance value
+restoreRiskTolerance();
+
+// ==========================================================================
 // Handle WebSocket open event
+// ==========================================================================
 ws.onopen = () => {
   // Update connection indicators
   updateConnectionIndicators(true);
@@ -726,13 +922,19 @@ runBtn.onclick = () => {
     return;
   }
   
+  // Clear old logs when starting a new run
+  logEntries = [];
+  clearStoredLogs();
+  feedBody.innerHTML = '';
+  clearEmptyState();
+  
   updateRunButton(RunButtonState.INITIALIZING);
   ws.send(
     JSON.stringify({
       action: "run_bot",
       mode: selectedMode,
       stake: 5,
-      risk_tolerance: riskValue, // Now sending a number!
+      risk_tolerance: riskValue,
     })
   );
 };
@@ -947,6 +1149,9 @@ function updateRiskIndicatorFromInput() {
     
     const val = parseFloat(riskInput.value);
     if (!isNaN(val) && val > 0) {
+        // Save to localStorage
+        saveRiskTolerance(riskInput.value);
+        
         // Update display with the exact value the user typed
         const balanceText = balanceEl.textContent;
         const balance = parseFloat(balanceText.replace(/,/g, ''));
@@ -1016,8 +1221,16 @@ Object.assign(percentSign.style, {
 // Insert % sign after input
 riskInput.parentNode.insertBefore(percentSign, riskInput.nextSibling);
 
-// Input event listener
-riskInput.addEventListener('input', updateRiskIndicatorFromInput);
+// Input event listener - now saves to storage
+riskInput.addEventListener('input', function() {
+    // Save to localStorage whenever user types
+    if (this.value !== '') {
+        saveRiskTolerance(this.value);
+    } else {
+        clearRiskTolerance();
+    }
+    updateRiskIndicatorFromInput();
+});
 
 // Blur event listener
 riskInput.addEventListener('blur', function() {
@@ -1038,6 +1251,7 @@ riskInput.addEventListener('blur', function() {
                 indicator.style.opacity = '0.6';
             }
         }
+        clearRiskTolerance();
     }
 });
 

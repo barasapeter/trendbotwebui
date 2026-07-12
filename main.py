@@ -493,7 +493,6 @@ async def run_session(
             }
             await stream(ws, stake_clamped | {"bot": {"running": True}})
 
-        
         if current_stake > 5000:
             current_stake = 5000
             stake2_clamped = {
@@ -740,7 +739,7 @@ async def run_bot_loop(
     await ws.send_json(
         {
             "message": "acknowledgement",
-            "status": "Connecting to Deriv servers...",
+            "status": "Connecting...",
         }
     )
 
