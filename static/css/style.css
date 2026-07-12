@@ -2,7 +2,7 @@
    TOKENS — light, friendly palette
    ========================================================================== */
 :root {
-  --bg: #faf9f6;
+  --bg: #f7f8fa;
   --surface: #ffffff;
   --surface-2: #f5f4fb;
   --border: #eae8f3;
@@ -88,7 +88,7 @@ body {
   font-size: 16px;
   letter-spacing: 0.01em;
   color: var(--text);
-  margin-left: 4px;
+  margin-left: 8px;
 }
 
 .conn-dot {
@@ -125,10 +125,7 @@ body {
 .RT {
   border: 1px solid #eae8f3;
   border-radius: 999px;
-  padding-top: 6px;
-  padding: 9px 18px;
-  text-align: center;
-  width: 90px;
+  padding: 6px;
 }
 
 .RT:focus {
@@ -170,7 +167,7 @@ body {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  padding: 26px 28px;
+  padding: 16px 18px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -197,7 +194,7 @@ body {
 
 .readout-cell:last-child {
   align-items: flex-end;
-  /* padding-right: 0; */
+  padding-right: 0;
 }
 
 .readout-cell:first-child::after {
@@ -750,10 +747,6 @@ body {
   
   .field-list dd {
     font-size: 11px;
-  }
-  
-  .card-metric {
-    font-size: 19px;
   }
   
   .card-title {

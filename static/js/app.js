@@ -15,10 +15,10 @@ let streamEnded = false;
 
 const input = document.getElementById("lossTolerance");
 
-input.addEventListener("input", () => {
-    if (input.value === "") return;
-    input.value = Math.min(100, Math.max(0.01, Number(input.value)));
-});
+// input.addEventListener("input", () => {
+//     if (input.value === "") return;
+//     input.value = Math.min(100, Math.max(0.01, Number(input.value)));
+// });
 
 // ==========================================================================
 // Mode state management with persistence
@@ -61,7 +61,7 @@ function updateRunButton(state, customText = null) {
     case RunButtonState.READY:
       if ((!isBotRunning && !isInitializing) || streamEnded) {
         runBtn.disabled = false;
-        runBtn.textContent = customText || "Run Bot";
+        runBtn.textContent = customText || "Execute";
       } else {
         runBtn.disabled = true;
         if (isBotRunning) {
@@ -713,7 +713,7 @@ runBtn.onclick = () => {
     alert("Tisk tolerance % required");
     input.focus();
     return;
-  }
+  } else if (input.value > 85 || input.value < 0.001) { alert ("Risk tolerance % must be between 0.001 and 85"); }
   if (ws.readyState !== WebSocket.OPEN) {
     return;
   }
@@ -760,3 +760,331 @@ if (ws.readyState === WebSocket.OPEN) {
     updateRunButton(RunButtonState.READY);
   }
 }
+
+// ==========================================================================
+// Risk Indicator - SL Value Display (inside input div)
+// ==========================================================================
+function createRiskIndicator() {
+    // Check if it already exists
+    let indicator = document.querySelector('.risk-indicator');
+    if (indicator) return indicator;
+    
+    // Create the container
+    indicator = document.createElement('div');
+    indicator.className = 'risk-indicator';
+    
+    // Apply styles - positioned inside the input div
+    Object.assign(indicator.style, {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '2px',
+        padding: '2px 10px 2px 4px',
+        borderRadius: '999px',
+        fontFamily: 'var(--font-body, "Nunito", sans-serif)',
+        fontSize: '12px',
+        fontWeight: '600',
+        color: 'var(--text-dim, #726f7d)',
+        minHeight: '30px',
+        transition: 'all 0.3s ease',
+        opacity: '0',
+        marginLeft: 'auto',
+        flexShrink: '0'
+    });
+    
+    // Risk label
+    const label = document.createElement('span');
+    label.className = 'risk-label';
+    label.textContent = 'SL';
+    Object.assign(label.style, {
+        color: 'var(--loss, #e0435f)',
+        fontWeight: '700',
+        fontSize: '10px',
+        letterSpacing: '0.3px',
+        textTransform: 'uppercase',
+        opacity: '0.7'
+    });
+    indicator.appendChild(label);
+    
+    // Value display
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'risk-value';
+    valueDisplay.style.backgroundColor = "transparent";
+    Object.assign(valueDisplay.style, {
+        color: 'var(--text, #2c2b35)',
+        fontWeight: '700',
+        fontSize: '13px',
+        transition: 'color 0.3s ease'
+    });
+    
+    // Show skeleton initially
+    valueDisplay.textContent = '';
+    Object.assign(valueDisplay.style, {
+        color: 'var(--text-faint, #a29fae)',
+        background: 'var(--surface, #ffffff)',
+        padding: '1px 8px',
+        borderRadius: '4px',
+        minWidth: '40px',
+        textAlign: 'center'
+    });
+    indicator.appendChild(valueDisplay);
+    
+    // Insert inside the input container, at the end
+    const inputContainer = document.querySelector('.controls > div:has(.RT)');
+    if (inputContainer) {
+        // Make the input container use flex with proper spacing
+        inputContainer.style.display = 'flex';
+        inputContainer.style.alignItems = 'center';
+        inputContainer.style.gap = '6px';
+        inputContainer.style.padding = '4px 6px 4px 12px';
+        
+        // Insert the indicator
+        inputContainer.appendChild(indicator);
+    }
+    
+    // Trigger entrance animation after a tiny delay
+    setTimeout(() => {
+        indicator.style.opacity = '1';
+        indicator.style.transform = 'scale(1)';
+    }, 50);
+    
+    return indicator;
+}
+
+// ==========================================================================
+// Update Risk Indicator
+// ==========================================================================
+function updateRiskIndicator(percentage, balance) {
+    const indicator = document.querySelector('.risk-indicator');
+    if (!indicator) {
+        // Create it if it doesn't exist
+        createRiskIndicator();
+        // Get it again after creation
+        const newIndicator = document.querySelector('.risk-indicator');
+        if (!newIndicator) return;
+    }
+    
+    const valueDisplay = indicator.querySelector('.risk-value');
+    if (!valueDisplay) return;
+    
+    if (percentage !== null && percentage !== undefined && 
+        !isNaN(percentage) && balance > 0 && percentage > 0) {
+        
+        const value = (percentage / 100) * balance;
+        const formattedValue = formatNumberWithCommas(value);
+        
+        // Remove skeleton styling
+        Object.assign(valueDisplay.style, {
+            background: 'transparent',
+            padding: '1px 4px',
+            minWidth: 'auto',
+            textAlign: 'left'
+        });
+        
+        // Set value with risk color based on percentage
+        valueDisplay.textContent = `${formattedValue}`;
+        
+        // Color coding based on risk level
+        if (percentage <= 2) {
+            valueDisplay.style.color = 'var(--profit, #1fa971)';
+        } else if (percentage <= 5) {
+            valueDisplay.style.color = 'var(--warn, #dd9328)';
+        } else {
+            valueDisplay.style.color = 'var(--loss, #e0435f)';
+        }
+        
+        // Show indicator with smooth transition
+        indicator.style.opacity = '1';
+        indicator.style.transform = 'scale(1)';
+        
+    } else {
+        // Show skeleton when no valid value
+        valueDisplay.textContent = '';
+        Object.assign(valueDisplay.style, {
+            color: 'var(--text-faint, #a29fae)',
+            background: 'var(--surface, #ffffff)',
+            padding: '1px 8px',
+            borderRadius: '4px',
+            minWidth: '40px',
+            textAlign: 'center'
+        });
+        indicator.style.opacity = '0.6';
+    }
+}
+
+// ==========================================================================
+// Initialize risk indicator on page load
+// ==========================================================================
+function initializeRiskIndicator() {
+    // Create indicator with skeleton
+    createRiskIndicator();
+    
+    // Check if input has value
+    if (input.value !== '') {
+        const val = parseFloat(input.value);
+        if (!isNaN(val) && val > 0) {
+            // Wait for balance to load
+            setTimeout(() => {
+                const balanceText = balanceEl.textContent;
+                const balance = parseFloat(balanceText.replace(/,/g, ''));
+                if (!isNaN(balance) && balance > 0) {
+                    updateRiskIndicator(val, balance);
+                }
+            }, 400);
+        }
+    }
+}
+
+// ==========================================================================
+// Update input handler - No clamping
+// ==========================================================================
+// Remove any existing listeners by cloning
+const newInput = input.cloneNode(true);
+input.parentNode.replaceChild(newInput, input);
+const updatedInput = document.getElementById('lossTolerance');
+
+// Style the input to work well inside the flex container
+Object.assign(updatedInput.style, {
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    fontSize: '14px',
+    fontWeight: '600',
+    color: 'var(--text, #2c2b35)',
+    width: '60px',
+    padding: '4px 0',
+    fontFamily: 'var(--font-body, "Nunito", sans-serif)'
+});
+
+// Add % sign after input
+const percentSign = document.createElement('span');
+percentSign.textContent = '%';
+Object.assign(percentSign.style, {
+    color: 'var(--text-dim, #726f7d)',
+    fontWeight: '600',
+    fontSize: '13px',
+    marginRight: '2px'
+});
+
+// Insert % sign after input
+updatedInput.parentNode.insertBefore(percentSign, updatedInput.nextSibling);
+
+updatedInput.addEventListener('input', function() {
+    if (this.value === '') {
+        // Show skeleton
+        const indicator = document.querySelector('.risk-indicator');
+        if (indicator) {
+            const valueDisplay = indicator.querySelector('.risk-value');
+            if (valueDisplay) {
+                valueDisplay.textContent = '';
+                Object.assign(valueDisplay.style, {
+                    color: 'var(--text-faint, #a29fae)',
+                    background: 'var(--surface, #ffffff)',
+                    padding: '1px 8px',
+                    borderRadius: '4px',
+                    minWidth: '40px',
+                    textAlign: 'center'
+                });
+                indicator.style.opacity = '0.6';
+            }
+        }
+        return;
+    }
+    
+    const val = parseFloat(this.value);
+    if (!isNaN(val) && val > 0) {
+        // Update display with the exact value the user typed
+        const balanceText = balanceEl.textContent;
+        const balance = parseFloat(balanceText.replace(/,/g, ''));
+        if (!isNaN(balance) && balance > 0) {
+            updateRiskIndicator(val, balance);
+        }
+    } else {
+        // If value is invalid (NaN or <= 0), show skeleton
+        const indicator = document.querySelector('.risk-indicator');
+        if (indicator) {
+            const valueDisplay = indicator.querySelector('.risk-value');
+            if (valueDisplay) {
+                valueDisplay.textContent = '';
+                Object.assign(valueDisplay.style, {
+                    color: 'var(--text-faint, #a29fae)',
+                    background: 'var(--surface, #ffffff)',
+                    padding: '1px 8px',
+                    borderRadius: '4px',
+                    minWidth: '40px',
+                    textAlign: 'center'
+                });
+                indicator.style.opacity = '0.6';
+            }
+        }
+    }
+});
+
+// ==========================================================================
+// Override balance update to refresh risk indicator
+// ==========================================================================
+const originalUpdateBalanceForRisk = updateBalanceAndPL;
+updateBalanceAndPL = function(balance, pl) {
+    originalUpdateBalanceForRisk(balance, pl);
+    
+    // Update risk indicator if input has value
+    if (updatedInput.value !== '') {
+        const balanceText = balanceEl.textContent;
+        const currentBalance = parseFloat(balanceText.replace(/,/g, ''));
+        const percentage = parseFloat(updatedInput.value);
+        
+        if (!isNaN(currentBalance) && currentBalance > 0 && 
+            !isNaN(percentage) && percentage > 0) {
+            updateRiskIndicator(percentage, currentBalance);
+        }
+    }
+};
+
+// ==========================================================================
+// Call on DOM ready
+// ==========================================================================
+document.addEventListener('DOMContentLoaded', initializeRiskIndicator);
+
+// ==========================================================================
+// Also call when WebSocket opens
+// ==========================================================================
+const originalWsOnOpenForRisk = ws.onopen;
+ws.onopen = function(event) {
+    if (originalWsOnOpenForRisk) originalWsOnOpenForRisk.call(this, event);
+    
+    setTimeout(() => {
+        if (updatedInput.value !== '') {
+            const val = parseFloat(updatedInput.value);
+            if (!isNaN(val) && val > 0) {
+                const balanceText = balanceEl.textContent;
+                const balance = parseFloat(balanceText.replace(/,/g, ''));
+                if (!isNaN(balance) && balance > 0) {
+                    updateRiskIndicator(val, balance);
+                }
+            }
+        }
+    }, 400);
+};
+
+// ==========================================================================
+// Handle input clearing - show skeleton
+// ==========================================================================
+updatedInput.addEventListener('blur', function() {
+    if (this.value === '') {
+        const indicator = document.querySelector('.risk-indicator');
+        if (indicator) {
+            const valueDisplay = indicator.querySelector('.risk-value');
+            if (valueDisplay) {
+                valueDisplay.textContent = '';
+                Object.assign(valueDisplay.style, {
+                    color: 'var(--text-faint, #a29fae)',
+                    background: 'var(--surface, #ffffff)',
+                    padding: '1px 8px',
+                    borderRadius: '4px',
+                    minWidth: '40px',
+                    textAlign: 'center'
+                });
+                indicator.style.opacity = '0.6';
+            }
+        }
+    }
+});

@@ -334,7 +334,7 @@ async def run_session(
     STRATEGY_TYPE = "MARTINGALE"  # "MARTINGALE" or "D_ALEMBERT"
 
     # Core Trade Parameters
-    SYMBOL = "R_100"  # Volatility 100 Index (High tick frequency)
+    SYMBOL = "R_25"  # Volatility 100 Index (High tick frequency)
     DURATION = 5  # Number of ticks/seconds
     DURATION_UNIT = "t"  # "t" for ticks
 
