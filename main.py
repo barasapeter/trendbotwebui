@@ -173,7 +173,7 @@ async def auth_post(request: Request):
         except Exception as e:
             raise HTTPException(
                 status_code=401,
-                detail=f"Invalid token or app_id: {e}",
+                detail="Invalid token or App ID.",
             )
 
     except HTTPException:
