@@ -19,18 +19,16 @@ let streamEnded = false;
 // ==========================================================================
 const STORAGE_KEY = 'trade_stream_logs';
 const RT_STORAGE_KEY = 'risk_tolerance_value';
-const MAX_STORED_LOGS = 1000; // Limit to prevent excessive storage
+const MAX_STORED_LOGS = 1000;
 
 function saveLogsToStorage(logs) {
     try {
-        // Keep only the last MAX_STORED_LOGS entries
         if (logs.length > MAX_STORED_LOGS) {
             logs = logs.slice(-MAX_STORED_LOGS);
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
     } catch (e) {
         console.warn('Failed to save logs to localStorage:', e);
-        // If storage is full, clear it and try again
         try {
             localStorage.removeItem(STORAGE_KEY);
             localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
@@ -88,9 +86,94 @@ function clearRiskTolerance() {
 }
 
 // ==========================================================================
-// Feed primitives - Modified to support restoration
+// Skeleton loader helpers - FIXED
 // ==========================================================================
-let logEntries = []; // In-memory store of log entries
+function showSkeleton(element, type = 'number') {
+  if (!element) return;
+  
+  // Set minimum dimensions to match content
+  if (type === 'number') {
+    element.style.minWidth = '120px';
+    element.style.minHeight = '38px';
+    element.style.display = 'inline-block';
+    element.style.fontSize = '32px';
+    element.style.lineHeight = '1.1';
+  } else {
+    element.style.minWidth = '60px';
+    element.style.minHeight = '1.2em';
+  }
+  
+  // Apply skeleton classes
+  element.classList.add('skeleton');
+  if (type === 'number') {
+    element.classList.add('skeleton-number');
+  } else {
+    element.classList.add('skeleton-text');
+  }
+  
+  // Preserve content space
+  element.textContent = '\u00A0';
+}
+
+function hideSkeleton(element) {
+  if (!element) return;
+  element.classList.remove('skeleton', 'skeleton-number', 'skeleton-text');
+  
+  // Reset styles
+  element.style.minWidth = '';
+  element.style.minHeight = '';
+  element.style.display = '';
+  element.style.fontSize = '';
+  element.style.lineHeight = '';
+  element.textContent = '';
+}
+
+function showFeedSkeleton(count = 3) {
+  if (!feedBody) return;
+  
+  // Remove existing skeletons
+  const existing = feedBody.querySelectorAll('.feed-skeleton');
+  existing.forEach(el => el.remove());
+  
+  // Create new skeletons
+  for (let i = 0; i < count; i++) {
+    const skeleton = document.createElement('div');
+    skeleton.className = 'feed-skeleton';
+    skeleton.style.animationDelay = `${i * 0.1}s`;
+    
+    const rail = document.createElement('div');
+    rail.className = 'feed-rail';
+    const dot = document.createElement('div');
+    dot.className = 'feed-dot neutral';
+    const line = document.createElement('div');
+    line.className = 'feed-line neutral';
+    rail.appendChild(dot);
+    rail.appendChild(line);
+    skeleton.appendChild(rail);
+    
+    const card = document.createElement('div');
+    card.className = 'skeleton-card';
+    for (let j = 0; j < 4; j++) {
+      const lineEl = document.createElement('div');
+      lineEl.className = 'skeleton-line';
+      card.appendChild(lineEl);
+    }
+    skeleton.appendChild(card);
+    
+    feedBody.prepend(skeleton);
+  }
+}
+
+function hideFeedSkeleton() {
+  if (!feedBody) return;
+  const skeletons = feedBody.querySelectorAll('.feed-skeleton');
+  skeletons.forEach(el => el.remove());
+}
+
+// ==========================================================================
+// Feed primitives
+// ==========================================================================
+let logEntries = [];
 
 function clearEmptyState() {
     const empty = feedBody.querySelector(".feed-empty");
@@ -118,7 +201,6 @@ function makeBadge(text, accent) {
     return span;
 }
 
-// Store log entry with timestamp
 function storeLogEntry(accent, cardEl, logData) {
     const entry = {
         timestamp: new Date().toISOString(),
@@ -126,12 +208,11 @@ function storeLogEntry(accent, cardEl, logData) {
         title: logData?.title || 'Unknown',
         widget: logData?.widget || 'unknown',
         metadata: logData?.metadata || {},
-        html: cardEl.outerHTML // Store HTML for restoration
+        html: cardEl.outerHTML
     };
     
     logEntries.push(entry);
     
-    // Keep only last MAX_STORED_LOGS entries
     if (logEntries.length > MAX_STORED_LOGS) {
         logEntries = logEntries.slice(-MAX_STORED_LOGS);
     }
@@ -141,6 +222,7 @@ function storeLogEntry(accent, cardEl, logData) {
 
 function pushFeedItem(accent, cardEl, logData = null) {
     clearEmptyState();
+    hideFeedSkeleton();
     if (ws.readyState === WebSocket.OPEN) setWaiting("watching");
 
     const item = document.createElement("div");
@@ -160,7 +242,6 @@ function pushFeedItem(accent, cardEl, logData = null) {
 
     feedBody.prepend(item);
     
-    // Store log for persistence (if logData provided)
     if (logData) {
         storeLogEntry(accent, cardEl, logData);
     }
@@ -168,13 +249,13 @@ function pushFeedItem(accent, cardEl, logData = null) {
 
 function pushLogLine(text, color) {
     clearEmptyState();
+    hideFeedSkeleton();
     const line = document.createElement("div");
     line.className = "log-line";
     if (color) line.style.color = color;
     line.textContent = text;
     feedBody.prepend(line);
     
-    // Store log line
     const entry = {
         timestamp: new Date().toISOString(),
         type: 'log_line',
@@ -197,26 +278,21 @@ function restoreLogsFromStorage() {
     if (storedLogs && storedLogs.length > 0) {
         logEntries = storedLogs;
         
-        // Clear the feed body
         feedBody.innerHTML = '';
         clearEmptyState();
         
-        // Restore each log entry
         storedLogs.forEach(entry => {
             if (entry.type === 'log_line') {
-                // Restore log line
                 const line = document.createElement("div");
                 line.className = "log-line";
                 if (entry.color) line.style.color = entry.color;
                 line.textContent = entry.text;
                 feedBody.prepend(line);
             } else if (entry.html) {
-                // Restore card from stored HTML
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = entry.html;
                 const cardEl = tempDiv.firstElementChild;
                 if (cardEl) {
-                    // Reconstruct the feed item
                     const item = document.createElement("div");
                     item.className = "feed-item";
 
@@ -246,10 +322,8 @@ function restoreLogsFromStorage() {
 // ==========================================================================
 // Mode state management with persistence
 // ==========================================================================
-// Try to load saved mode from localStorage, fallback to "demo"
 let selectedMode = localStorage.getItem("selectedMode") || "demo";
 
-// Update UI to reflect saved mode
 modeButtons.forEach((btn) => {
   if (btn.dataset.mode === selectedMode) {
     btn.classList.add("active");
@@ -335,37 +409,39 @@ function setWaiting(state) {
 // ==========================================================================
 modeButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
-    // Check if this is actually a change
     if (btn.dataset.mode === selectedMode) {
-      // If clicking the same mode, still refresh balance
       refreshBalanceForCurrentMode();
       return;
     }
     
-    // Update UI
     modeButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     
-    // Save selected mode
     selectedMode = btn.dataset.mode;
     localStorage.setItem("selectedMode", selectedMode);
     
-    // Reset initial balance when switching modes
     initialBal = 0;
     
-    // Show skeleton while loading new balance
     showSkeleton(balanceEl, 'number');
     showSkeleton(plEl, 'number');
     
-    // Refresh balance for the new mode
     refreshBalanceForCurrentMode();
   });
 });
 
 // ==========================================================================
-// Refresh balance for current mode
+// Refresh balance for current mode - with smooth transition
 // ==========================================================================
+let pendingBalanceRequest = false;
+
 function refreshBalanceForCurrentMode() {
+  showSkeleton(balanceEl, 'number');
+  showSkeleton(plEl, 'number');
+  
+  if (feedBody && feedBody.children.length === 0) {
+    showFeedSkeleton(3);
+  }
+  
   if (ws && ws.readyState === WebSocket.OPEN) {
     console.log(`Requesting balance for mode: ${selectedMode}`);
     ws.send(JSON.stringify({
@@ -374,12 +450,14 @@ function refreshBalanceForCurrentMode() {
     }));
   } else {
     console.warn("WebSocket not open, cannot refresh balance");
-    // Try again when connection opens
     pendingBalanceRequest = true;
+    setTimeout(() => {
+      hideSkeleton(balanceEl);
+      hideSkeleton(plEl);
+      hideFeedSkeleton();
+    }, 5000);
   }
 }
-
-let pendingBalanceRequest = false;
 
 // ==========================================================================
 // Accent system
@@ -410,7 +488,7 @@ function makeCard(title, accent, extraClass = "") {
 }
 
 // ==========================================================================
-// Widget renderers - Modified to pass log data
+// Widget renderers
 // ==========================================================================
 const RENDERERS = {
   session_initializer(data) {
@@ -586,12 +664,10 @@ function formatNumberWithCommas(value) {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num)) return "0.00";
   
-  // Format with commas and 2 decimal places
   const parts = num.toFixed(2).split('.');
   const integerPart = parts[0];
   const decimalPart = parts[1];
   
-  // Add commas to integer part
   const withCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   
   return `${withCommas}.${decimalPart}`;
@@ -621,63 +697,63 @@ function formatPL(value) {
 }
 
 // ==========================================================================
-// Skeleton loader helpers
+// Update balance and PL display - with smooth transition
 // ==========================================================================
-function showSkeleton(element, type = 'number') {
-  if (!element) return;
-  element.classList.add('skeleton');
-  if (type === 'number') {
-    element.classList.add('skeleton-number');
-  } else {
-    element.classList.add('skeleton-text');
-  }
-  element.textContent = 'Loading...';
-}
+let initialBal = 0;
 
-function hideSkeleton(element) {
-  if (!element) return;
-  element.classList.remove('skeleton', 'skeleton-number', 'skeleton-text');
-}
-
-// ==========================================================================
-// Update balance and PL display
-// ==========================================================================
 function updateBalanceAndPL(balance, pl) {
   if (balance !== undefined && balance !== null) {
     const balanceNum = typeof balance === 'string' ? parseFloat(balance) : balance;
     if (!isNaN(balanceNum)) {
-      hideSkeleton(balanceEl);
-      balanceEl.textContent = formatNumberWithCommas(balanceNum);
-      
-      // Update balance color based on change from initial
-      if (initialBal !== 0 && balanceNum < initialBal) {
-        balanceEl.style.color = "red";
-      } else {
-        balanceEl.style.color = "#1fa971";
-      }
+      setTimeout(() => {
+        hideSkeleton(balanceEl);
+        balanceEl.textContent = formatNumberWithCommas(balanceNum);
+        
+        if (initialBal !== 0 && balanceNum < initialBal) {
+          balanceEl.style.color = "var(--loss)";
+        } else {
+          balanceEl.style.color = "var(--profit)";
+        }
+        
+        balanceEl.style.transition = 'opacity 0.3s ease';
+        balanceEl.style.opacity = '0';
+        requestAnimationFrame(() => {
+          balanceEl.style.opacity = '1';
+        });
+      }, 100);
     }
   }
   
   if (pl !== undefined && pl !== null) {
     const plNum = typeof pl === 'string' ? parseFloat(pl) : pl;
     if (!isNaN(plNum)) {
-      hideSkeleton(plEl);
-      plEl.textContent = formatPL(plNum);
-      
-      // Update PL color
-      if (plNum < 0) {
-        plEl.style.color = "red";
-        plEl.classList.remove("pl-positive");
-        plEl.classList.add("pl-negative");
-      } else {
-        plEl.style.color = "#1fa971";
-        plEl.classList.remove("pl-negative");
-        plEl.classList.add("pl-positive");
-      }
+      setTimeout(() => {
+        hideSkeleton(plEl);
+        plEl.textContent = formatPL(plNum);
+        
+        if (plNum < 0) {
+          plEl.style.color = "var(--loss)";
+          plEl.classList.remove("pl-positive");
+          plEl.classList.add("pl-negative");
+        } else {
+          plEl.style.color = "var(--profit)";
+          plEl.classList.remove("pl-negative");
+          plEl.classList.add("pl-positive");
+        }
+        
+        plEl.style.transition = 'opacity 0.3s ease';
+        plEl.style.opacity = '0';
+        requestAnimationFrame(() => {
+          plEl.style.opacity = '1';
+        });
+      }, 150);
     }
   }
   
-  // Update risk indicator if input has value
+  setTimeout(() => {
+    hideFeedSkeleton();
+  }, 300);
+  
   updateRiskIndicatorFromInput();
 }
 
@@ -704,17 +780,13 @@ function updateConnectionIndicators(connected) {
 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
 
-// Initialize UI
 updateRunButton(RunButtonState.CONNECTING);
 setWaiting("connecting");
-let initialBal = 0;
 
-// Force initial connection dot state to show "connecting"
 connDot.classList.remove("live");
 connDot.classList.add("down");
 connLabel.textContent = "Connecting...";
 
-// Set initial balance and PL to show skeleton loaders
 showSkeleton(balanceEl, 'number');
 showSkeleton(plEl, 'number');
 
@@ -725,7 +797,6 @@ function restoreRiskTolerance() {
     const storedValue = loadRiskTolerance();
     if (storedValue !== '') {
         riskInput.value = storedValue;
-        // Trigger update of risk indicator
         setTimeout(() => {
             updateRiskIndicatorFromInput();
         }, 100);
@@ -734,38 +805,17 @@ function restoreRiskTolerance() {
 }
 
 // ==========================================================================
-// Restore logs from storage on page load
-// ==========================================================================
-const hasRestoredLogs = restoreLogsFromStorage();
-
-// If no logs restored, show empty state
-if (!hasRestoredLogs) {
-    const emptyState = document.createElement("div");
-    emptyState.className = "feed-empty";
-    emptyState.textContent = "No logs yet. Start a bot run to see activity.";
-    feedBody.appendChild(emptyState);
-}
-
-// Restore risk tolerance value
-restoreRiskTolerance();
-
-// ==========================================================================
-// Handle WebSocket open event
+// WebSocket event handlers
 // ==========================================================================
 ws.onopen = () => {
-  // Update connection indicators
   updateConnectionIndicators(true);
-  
-  // Request initial balance with current mode
   refreshBalanceForCurrentMode();
   
-  // Handle any pending balance requests
   if (pendingBalanceRequest) {
     pendingBalanceRequest = false;
     refreshBalanceForCurrentMode();
   }
   
-  // Update button state
   if (!isBotRunning && !isInitializing) {
     updateRunButton(RunButtonState.READY);
   } else if (isBotRunning) {
@@ -774,17 +824,14 @@ ws.onopen = () => {
     updateRunButton(RunButtonState.INITIALIZING);
   }
   
-  // Update risk indicator after connection
   setTimeout(() => {
     updateRiskIndicatorFromInput();
   }, 400);
 };
 
-// Handle WebSocket messages
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
   
-  // Handle balance and PL updates from trade_stream
   if (data.trade_stream) {
     stopBtn.style.display = "block";
     if (data.trade_stream.widget == "bot_shutdown_summary") {
@@ -797,12 +844,10 @@ ws.onmessage = (event) => {
           stopBtn.disabled=true;
       }, 1000);
     }
-    // Update balance if present
     if (data.trade_stream.balance !== undefined) {
       const balance = data.trade_stream.balance;
       const pl = data.trade_stream.pl !== undefined ? data.trade_stream.pl : 0;
       
-      // Store initial balance if not set
       if (initialBal === 0 && balance !== undefined) {
         initialBal = typeof balance === 'string' ? parseFloat(balance) : balance;
       }
@@ -810,10 +855,8 @@ ws.onmessage = (event) => {
       updateBalanceAndPL(balance, pl);
     }
     
-    // Render the trade stream
     renderTradeStream(data.trade_stream);
     
-    // Check for end of stream
     if (data.trade_stream.end_of_stream) {
       waitingText.textContent = "";
       waitingIndicator.classList.add("paused");
@@ -826,7 +869,6 @@ ws.onmessage = (event) => {
     }
   }
   
-  // Handle separate balance update response (from get_balance action)
   if (data.balance !== undefined || data.pl !== undefined) {
     const balance = data.balance;
     const pl = data.pl !== undefined ? data.pl : 0;
@@ -838,7 +880,6 @@ ws.onmessage = (event) => {
     updateBalanceAndPL(balance, pl);
   }
 
-  // Check if bot is running
   if (data.bot && data.bot.running) {
     stopBtn.textContent = "Stop";
     stopBtn.disabled = false;
@@ -850,14 +891,12 @@ ws.onmessage = (event) => {
     isInitializing = false;
     updateRunButton(RunButtonState.RUNNING);
   } else {
-    // Only update if bot state changes
     const wasRunning = isBotRunning;
     isBotRunning = false;
 
     waitingIndicator.classList.add("paused");
     updateRunButton(RunButtonState.READY);
     
-    // Reset button state if it was running and we got a non-running response
     if (wasRunning && !data.bot?.running && !data.trade_stream?.bot?.running) {
       if (currentRunButtonState !== RunButtonState.CONNECTING && 
           currentRunButtonState !== RunButtonState.CLOSED &&
@@ -867,42 +906,31 @@ ws.onmessage = (event) => {
     }
   }
 
-  // Handle status messages
   if (data.status) {
     pushLogLine(data.status, data.color);
   }
 };
 
-// Handle WebSocket close
 ws.onclose = (event) => {
   updateConnectionIndicators(false);
-  
   isBotRunning = false;
   isInitializing = false;
-  
   updateRunButton(RunButtonState.CLOSED);
-  
-  // Show skeleton loaders when disconnected
   showSkeleton(balanceEl, 'number');
   showSkeleton(plEl, 'number');
 };
 
-// Handle WebSocket error
 ws.onerror = () => {
   updateConnectionIndicators(false);
-  
   isBotRunning = false;
   isInitializing = false;
-  
   updateRunButton(RunButtonState.CLOSED);
-  
-  // Show skeleton loaders when disconnected
   showSkeleton(balanceEl, 'number');
   showSkeleton(plEl, 'number');
 };
 
 // ==========================================================================
-// Run button click handler - FIXED to use riskInput
+// Run button click handler
 // ==========================================================================
 runBtn.onclick = () => {
   const riskValue = parseFloat(riskInput.value);
@@ -922,11 +950,11 @@ runBtn.onclick = () => {
     return;
   }
   
-  // Clear old logs when starting a new run
   logEntries = [];
   clearStoredLogs();
   feedBody.innerHTML = '';
   clearEmptyState();
+  showFeedSkeleton(3);
   
   updateRunButton(RunButtonState.INITIALIZING);
   ws.send(
@@ -954,37 +982,16 @@ stopBtn.addEventListener("click", () => {
     }
 });
 
-// Handle page unload
-window.addEventListener("pagehide", () => {
-  if (ws.readyState === WebSocket.OPEN) ws.close(1000, "Page unloaded");
-});
-
-window.addEventListener("beforeunload", () => {
-  if (ws.readyState === WebSocket.OPEN) ws.close(1000, "Page unloading");
-});
-
-// If WebSocket is already open when this script loads, request balance immediately
-if (ws.readyState === WebSocket.OPEN) {
-  updateConnectionIndicators(true);
-  refreshBalanceForCurrentMode();
-  if (!isBotRunning && !isInitializing) {
-    updateRunButton(RunButtonState.READY);
-  }
-}
-
 // ==========================================================================
-// Risk Indicator - SL Value Display (inside input div)
+// Risk Indicator - SL Value Display
 // ==========================================================================
 function createRiskIndicator() {
-    // Check if it already exists
     let indicator = document.querySelector('.risk-indicator');
     if (indicator) return indicator;
     
-    // Create the container
     indicator = document.createElement('div');
     indicator.className = 'risk-indicator';
     
-    // Apply styles - positioned inside the input div
     Object.assign(indicator.style, {
         display: 'flex',
         alignItems: 'center',
@@ -1002,7 +1009,6 @@ function createRiskIndicator() {
         flexShrink: '0'
     });
     
-    // Risk label
     const label = document.createElement('span');
     label.className = 'risk-label';
     label.textContent = 'SL';
@@ -1016,7 +1022,6 @@ function createRiskIndicator() {
     });
     indicator.appendChild(label);
     
-    // Value display
     const valueDisplay = document.createElement('span');
     valueDisplay.className = 'risk-value';
     valueDisplay.style.backgroundColor = "transparent";
@@ -1027,7 +1032,6 @@ function createRiskIndicator() {
         transition: 'color 0.3s ease'
     });
     
-    // Show skeleton initially
     valueDisplay.textContent = '';
     Object.assign(valueDisplay.style, {
         color: 'var(--text-faint, #a29fae)',
@@ -1039,20 +1043,15 @@ function createRiskIndicator() {
     });
     indicator.appendChild(valueDisplay);
     
-    // Insert inside the input container, at the end
     const inputContainer = document.querySelector('.controls > div:has(.RT)');
     if (inputContainer) {
-        // Make the input container use flex with proper spacing
         inputContainer.style.display = 'flex';
         inputContainer.style.alignItems = 'center';
         inputContainer.style.gap = '6px';
         inputContainer.style.padding = '4px 6px 4px 12px';
-        
-        // Insert the indicator
         inputContainer.appendChild(indicator);
     }
     
-    // Trigger entrance animation after a tiny delay
     setTimeout(() => {
         indicator.style.opacity = '1';
         indicator.style.transform = 'scale(1)';
@@ -1067,9 +1066,7 @@ function createRiskIndicator() {
 function updateRiskIndicator(percentage, balance) {
     const indicator = document.querySelector('.risk-indicator');
     if (!indicator) {
-        // Create it if it doesn't exist
         createRiskIndicator();
-        // Get it again after creation
         const newIndicator = document.querySelector('.risk-indicator');
         if (!newIndicator) return;
     }
@@ -1083,7 +1080,6 @@ function updateRiskIndicator(percentage, balance) {
         const value = (percentage / 100) * balance;
         const formattedValue = formatNumberWithCommas(value);
         
-        // Remove skeleton styling
         Object.assign(valueDisplay.style, {
             background: 'transparent',
             padding: '1px 4px',
@@ -1091,10 +1087,8 @@ function updateRiskIndicator(percentage, balance) {
             textAlign: 'left'
         });
         
-        // Set value with risk color based on percentage
         valueDisplay.textContent = `${formattedValue}`;
         
-        // Color coding based on risk level
         if (percentage <= 2) {
             valueDisplay.style.color = 'var(--profit, #1fa971)';
         } else if (percentage <= 5) {
@@ -1103,12 +1097,10 @@ function updateRiskIndicator(percentage, balance) {
             valueDisplay.style.color = 'var(--loss, #e0435f)';
         }
         
-        // Show indicator with smooth transition
         indicator.style.opacity = '1';
         indicator.style.transform = 'scale(1)';
         
     } else {
-        // Show skeleton when no valid value
         valueDisplay.textContent = '';
         Object.assign(valueDisplay.style, {
             color: 'var(--text-faint, #a29fae)',
@@ -1127,7 +1119,6 @@ function updateRiskIndicator(percentage, balance) {
 // ==========================================================================
 function updateRiskIndicatorFromInput() {
     if (riskInput.value === '') {
-        // Show skeleton
         const indicator = document.querySelector('.risk-indicator');
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
@@ -1149,17 +1140,13 @@ function updateRiskIndicatorFromInput() {
     
     const val = parseFloat(riskInput.value);
     if (!isNaN(val) && val > 0) {
-        // Save to localStorage
         saveRiskTolerance(riskInput.value);
-        
-        // Update display with the exact value the user typed
         const balanceText = balanceEl.textContent;
         const balance = parseFloat(balanceText.replace(/,/g, ''));
         if (!isNaN(balance) && balance > 0) {
             updateRiskIndicator(val, balance);
         }
     } else {
-        // If value is invalid (NaN or <= 0), show skeleton
         const indicator = document.querySelector('.risk-indicator');
         if (indicator) {
             const valueDisplay = indicator.querySelector('.risk-value');
@@ -1183,10 +1170,7 @@ function updateRiskIndicatorFromInput() {
 // Initialize risk indicator on page load
 // ==========================================================================
 function initializeRiskIndicator() {
-    // Create indicator with skeleton
     createRiskIndicator();
-    
-    // Check if input has value
     setTimeout(() => {
         updateRiskIndicatorFromInput();
     }, 400);
@@ -1195,7 +1179,6 @@ function initializeRiskIndicator() {
 // ==========================================================================
 // Setup input with styling and event listeners
 // ==========================================================================
-// Style the input to work well inside the flex container
 Object.assign(riskInput.style, {
     border: 'none',
     outline: 'none',
@@ -1208,7 +1191,6 @@ Object.assign(riskInput.style, {
     fontFamily: 'var(--font-body, "Nunito", sans-serif)'
 });
 
-// Add % sign after input
 const percentSign = document.createElement('span');
 percentSign.textContent = '%';
 Object.assign(percentSign.style, {
@@ -1218,12 +1200,9 @@ Object.assign(percentSign.style, {
     marginRight: '2px'
 });
 
-// Insert % sign after input
 riskInput.parentNode.insertBefore(percentSign, riskInput.nextSibling);
 
-// Input event listener - now saves to storage
 riskInput.addEventListener('input', function() {
-    // Save to localStorage whenever user types
     if (this.value !== '') {
         saveRiskTolerance(this.value);
     } else {
@@ -1232,7 +1211,6 @@ riskInput.addEventListener('input', function() {
     updateRiskIndicatorFromInput();
 });
 
-// Blur event listener
 riskInput.addEventListener('blur', function() {
     if (this.value === '') {
         const indicator = document.querySelector('.risk-indicator');
@@ -1256,6 +1234,40 @@ riskInput.addEventListener('blur', function() {
 });
 
 // ==========================================================================
-// Call on DOM ready
+// Page load handlers
 // ==========================================================================
-document.addEventListener('DOMContentLoaded', initializeRiskIndicator);
+document.addEventListener('DOMContentLoaded', () => {
+  showSkeleton(balanceEl, 'number');
+  showSkeleton(plEl, 'number');
+  
+  if (feedBody && feedBody.children.length === 0) {
+    showFeedSkeleton(3);
+  }
+  
+  initializeRiskIndicator();
+  
+  setTimeout(() => {
+    const hasRestoredLogs = restoreLogsFromStorage();
+    if (hasRestoredLogs) {
+      hideFeedSkeleton();
+    }
+  }, 100);
+});
+
+// Handle page unload
+window.addEventListener("pagehide", () => {
+  if (ws.readyState === WebSocket.OPEN) ws.close(1000, "Page unloaded");
+});
+
+window.addEventListener("beforeunload", () => {
+  if (ws.readyState === WebSocket.OPEN) ws.close(1000, "Page unloading");
+});
+
+// If WebSocket is already open when this script loads
+if (ws.readyState === WebSocket.OPEN) {
+  updateConnectionIndicators(true);
+  refreshBalanceForCurrentMode();
+  if (!isBotRunning && !isInitializing) {
+    updateRunButton(RunButtonState.READY);
+  }
+}
