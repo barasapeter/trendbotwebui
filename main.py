@@ -59,12 +59,97 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    if not request.session.get("username"):
+    username: str = request.session.get("username")
+    if not username:
         return RedirectResponse("/auth")
+
+    # users_dir = Path("users")
+    # users_dir.mkdir(exist_ok=True)
+
+    # filepath = users_dir / "kialafx.json"
+
+    # if not filepath.exists():
+    #     filepath = users_dir / "barasapeter52.json"
+
+    # print("Filepath:", filepath)
+
+    # with open(filepath, "r", encoding="utf-8") as file:
+    #     admin: dict = json.load(file)
+
+    # print("admin:", admin)
+
+    # usernames = [
+    #     email.split("@")[0].lower() for email in admin.get("authorized_users", [])
+    # ]
+    # print("Usernames", usernames)
+    # if username.lower() not in usernames:
+    #     return JSONResponse(
+    #         status_code=403,
+    #         content={"detail": "Please contact the admin to access this bot."},
+    #     )
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={"title": "Runner", "balance": None, "PL": None},
+    )
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin(request: Request):
+    username = request.session.get("username")
+    if not username:
+        return RedirectResponse("/auth")
+    if username not in [
+        "kialafx",
+        "barasapeter52",
+    ]:  # Used my username for testing purposes only. TODO: Remove in prod
+        raise HTTPException(
+            status_code=403, detail="You do not have permission to make this request."
+        )
+
+    users_dir = Path("users")
+    users_dir.mkdir(exist_ok=True)
+
+    filepath = users_dir / f"{username}.json"
+
+    with open(filepath, "r", encoding="utf-8") as file:
+        admin: dict = json.load(file)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="admin.html",
+        context={"authorized_users": admin.get("authorized_users", [])},
+    )
+
+
+@app.post("/admin", response_class=JSONResponse)
+async def admin_post(request: Request):
+    username = request.session.get("username")
+    if not username:
+        raise HTTPException(status_code=401, detail="You need to log in first.")
+    if username not in [
+        "kialafx",
+        "barasapeter52",
+    ]:  # Used my username for testing purposes only. TODO: Remove in prod
+        raise HTTPException(
+            status_code=403, detail="You do not have permission to make this request."
+        )
+
+    users_dir = Path("users")
+    users_dir.mkdir(exist_ok=True)
+
+    filepath = users_dir / f"{username}.json"
+
+    with open(filepath, "r", encoding="utf-8") as file:
+        admin = json.load(file)
+
+    admin["authorized_users"] = await request.json()
+    with open(filepath, "w", encoding="utf-8") as file:
+        json.dump(admin, file, indent=4)
+
+    return JSONResponse(
+        status_code=200, content={"detail": "User list updated successfully."}
     )
 
 
@@ -145,6 +230,28 @@ async def auth_post(request: Request):
             raise HTTPException(
                 status_code=401,
                 detail="The sign-in details are incorrect.",
+            )
+
+        users_dir = Path("users")
+        users_dir.mkdir(exist_ok=True)
+
+        filepath = users_dir / "kialafx.json"
+
+        if not filepath.exists():
+            filepath = users_dir / "barasapeter52.json"
+
+        with open(filepath, "r", encoding="utf-8") as file:
+            admin: dict = json.load(file)
+
+        usernames = [
+            email.split("@")[0].lower() for email in admin.get("authorized_users", [])
+        ]
+        if username.lower() not in usernames:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "This email has not been whitelested yet. Please contact the admin, then come back and try again."
+                },
             )
 
         # ==========================================================

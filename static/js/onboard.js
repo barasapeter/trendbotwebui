@@ -275,7 +275,7 @@
                 stepContainer.innerHTML = `
                     <div class="finish-message">
                         <i class="fas fa-check-circle icon-big"></i>
-                        <h3>Welcome to Amy</h3>
+                        <h3>Welcome!</h3>
                         <p>${data.detail || 'You\'re all set. Happy building!'}</p>
                         <div style="margin-top:2rem;">
                             <button class="btn-startover" onclick="window.location.href='/'">Go to Dashboard</button>

@@ -107,7 +107,7 @@ async def run_session(client, session_num):
     print("==================================================")
     print(f"Risk Engine     : {STRATEGY_TYPE}")
     print(f"Selection Mode  : {DIRECTION_MODE}")
-    print(f"Asset Class     : Gold (XAU/USD)")
+    print("Asset Class     : Gold (XAU/USD)")
     print(f"Timeframe       : {DURATION} {DURATION_UNIT.upper()}")
     print(f"Starting Balance: {initial_session_balance:.2f} {CURRENCY}")
     print(f"Take Profit Goal: +{PROFIT_THRESHOLD} {CURRENCY}")
