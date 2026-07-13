@@ -1,8 +1,5 @@
 """Main workflow (main.py)
-I need you to stream the info in a clean format, in a way that the client can easily render
-the trade/market situation
-
-IMPORTANT: The streaming must be optimised to be fast, and real time.
+Optimized for Gold (XAUUSD) Options Trading with a clean, client-renderable stream.
 """
 
 import asyncio
@@ -10,6 +7,14 @@ import math
 from client import DerivClient
 from auth import get_ws_url
 import argparse
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+TOKEN = os.getenv("TOKEN")
+APP_ID = os.getenv("APP_ID")
 
 # ==========================================
 # ANSI COLOR CODES (for terminal output)
@@ -25,34 +30,26 @@ YELLOW = "\033[93m"
 # ==========================================
 STRATEGY_TYPE = "MARTINGALE"  # "MARTINGALE" or "D_ALEMBERT"
 
-# Core Trade Parameters
-SYMBOL = "R_100"  # Volatility 100 Index (High tick frequency)
-DURATION = 5  # Number of ticks/seconds
-DURATION_UNIT = "t"  # "t" for ticks
+# Core Trade Parameters (Updated for Gold with Minimum Timeframe)
+SYMBOL = "frxXAUUSD"  # Gold vs US Dollar Asset Symbol
+DURATION = 5  # Smallest supported duration interval
+DURATION_UNIT = "m"  # "m" for Minutes (Minimum requirement for Gold)
 CURRENCY = "USD"
 
 # WIN RATE CONFIGURATION
-# "TREND_FOLLOW" analyses live tick momentum before placing an order.
-# Options: "TREND_FOLLOW", "CALL" (Always Rise), "PUT" (Always Fall), "ALTERNATE"
 DIRECTION_MODE = "TREND_FOLLOW"
 
 # Strategy Specific Parameters
-INITIAL_STAKE = 10
+INITIAL_STAKE = 50
 MAX_STAKE = 100
 PROFIT_THRESHOLD = 20
 LOSS_THRESHOLD = 100
 
 STAKE_MULTIPLIER = 2  # [Martingale] Multiplier factor on loss
-STAKE_INCREMENT = 1.0  # [D'Alembert] Unit unit scale change
+STAKE_INCREMENT = 1.0  # [D'Alembert] Unit scale change
 
 # LOOPING BEHAVIOUR
-# How long to pause between the end of one session and the start of the next.
 INTER_SESSION_PAUSE = 5  # seconds
-
-# Number of sessions to run. Choose ONE of the following styles:
-#   MAX_SESSIONS = 3            -> runs exactly 3 sessions, then stops
-#   MAX_SESSIONS = math.inf     -> runs forever until Ctrl+C ("infinite")
-#   MAX_SESSIONS = None         -> also runs forever until Ctrl+C (same as above)
 MAX_SESSIONS = 20 or math.inf
 
 
@@ -70,8 +67,7 @@ async def get_account_balance(client):
 
 async def get_market_trend(client, symbol):
     """
-    WIN-RATE ENHANCER: Reads immediate tick momentum.
-    Returns ('CALL', label) for an uptrend, or ('PUT', label) for a downtrend.
+    Reads immediate micro-ticks on Gold to judge short-term momentum shifts.
     """
     payload = {
         "ticks_history": symbol,
@@ -86,11 +82,10 @@ async def get_market_trend(client, symbol):
 
     prices = res["history"].get("prices", [])
     if len(prices) >= 2:
-        # Compare current tick to previous tick to detect immediate micro-direction
         if prices[-1] > prices[-2]:
-            return "CALL", "BULLISH MOMENTUM (Price Rising)"
+            return "CALL", "GOLD BULLISH MOMENTUM (Price Rising)"
         elif prices[-1] < prices[-2]:
-            return "PUT", "BEARISH MOMENTUM (Price Dropping)"
+            return "PUT", "GOLD BEARISH MOMENTUM (Price Dropping)"
 
     return "CALL", "STAGNANT MARKETS (No Edge Detected)"
 
@@ -99,10 +94,7 @@ async def get_market_trend(client, symbol):
 # 3. SINGLE SESSION EXECUTION ENGINE
 # ==========================================
 async def run_session(client, session_num):
-    """
-    Runs one full session (until profit target or stop-loss is hit) and
-    returns the session's net PnL so the caller can accumulate it.
-    """
+    """Runs one full session until bounds are triggered."""
     current_stake = INITIAL_STAKE
     total_profit_loss = 0.0
     current_direction = "CALL"
@@ -111,17 +103,18 @@ async def run_session(client, session_num):
     initial_session_balance = await get_account_balance(client)
 
     print("==================================================")
-    print(f"SESSION #{session_num} — INITIALIZING")
+    print(f"SESSION #{session_num} — INITIALIZING (GOLD SPOT)")
     print("==================================================")
     print(f"Risk Engine     : {STRATEGY_TYPE}")
     print(f"Selection Mode  : {DIRECTION_MODE}")
+    print(f"Asset Class     : Gold (XAU/USD)")
+    print(f"Timeframe       : {DURATION} {DURATION_UNIT.upper()}")
     print(f"Starting Balance: {initial_session_balance:.2f} {CURRENCY}")
     print(f"Take Profit Goal: +{PROFIT_THRESHOLD} {CURRENCY}")
     print(f"Max Stop Loss   : -{LOSS_THRESHOLD} {CURRENCY}")
     print("==================================================\n")
 
     while True:
-        # Session Profit / Loss Boundary Checks
         if total_profit_loss >= PROFIT_THRESHOLD:
             print(f"TARGET PROFIT REACHED! Session #{session_num} Stopping Safely.")
             break
@@ -130,12 +123,8 @@ async def run_session(client, session_num):
             break
 
         trade_count += 1
-
-        # 1. Fetch pre-execution state parameters
         balance_before_trade = await get_account_balance(client)
 
-        # Determine Execution Direction Strategy
-        trend_label = "Fixed"
         if DIRECTION_MODE == "TREND_FOLLOW":
             current_direction, trend_label = await get_market_trend(client, SYMBOL)
         elif DIRECTION_MODE == "ALTERNATE":
@@ -145,10 +134,7 @@ async def run_session(client, session_num):
             current_direction = DIRECTION_MODE
             trend_label = f"Forced {DIRECTION_MODE}"
 
-        # PRE-TRADE STOP-LOSS GUARDRAIL
-        # Clamp the stake to whatever loss budget actually remains, so a
-        # single trade can never blow past LOSS_THRESHOLD outright.
-        remaining_budget = LOSS_THRESHOLD + total_profit_loss  # e.g. 25 + (-20) = 5
+        remaining_budget = LOSS_THRESHOLD + total_profit_loss
         if current_stake > remaining_budget:
             print(
                 f"Stop-Loss Guardrail Triggered: stake {current_stake:.2f} exceeds "
@@ -160,7 +146,6 @@ async def run_session(client, session_num):
             current_stake = round(remaining_budget, 2)
             print(f"Clamping stake to remaining budget: {current_stake:.2f}")
 
-        # Clean Logging Interface (Per-Trade Metrics Dashboard)
         print("--------------------------------------------------")
         print(f"SESSION #{session_num} | TRADE #{trade_count} DASHBOARD")
         print("--------------------------------------------------")
@@ -170,7 +155,6 @@ async def run_session(client, session_num):
             f"Execution      : Buying {current_direction} | Stake: {current_stake:.2f} {CURRENCY}"
         )
 
-        # Send Execution Payload
         buy_payload = {
             "buy": "1",
             "price": current_stake,
@@ -195,7 +179,6 @@ async def run_session(client, session_num):
 
         contract_id = buy_response["buy"]["contract_id"]
 
-        # Stream Contract Expiry Progress
         await client.subscribe(
             {
                 "proposal_open_contract": 1,
@@ -216,13 +199,9 @@ async def run_session(client, session_num):
                     is_win = contract_profit > 0
                     break
 
-        # Calculate Running Accounting Adjustments
         total_profit_loss += contract_profit
-
-        # 3. Fetch Post-execution Account Adjustments
         balance_after_trade = await get_account_balance(client)
 
-        # Color-coded outcome: green for a win/profit round, red for a loss round
         outcome_color = GREEN if is_win else RED
         result_str = "WIN" if is_win else "LOSS"
         print(
@@ -235,7 +214,6 @@ async def run_session(client, session_num):
         )
         print("--------------------------------------------------\n")
 
-        # Apply Risk Management Calculations (Martingale vs D'Alembert)
         if is_win:
             if STRATEGY_TYPE == "MARTINGALE":
                 current_stake = INITIAL_STAKE
@@ -254,9 +232,8 @@ async def run_session(client, session_num):
                 print(f"Dropping stake to initial configuration: {INITIAL_STAKE}")
                 current_stake = INITIAL_STAKE
 
-        await asyncio.sleep(1.5)  # Safe spacing interval between evaluation loops
+        await asyncio.sleep(1.5)
 
-    # Session Closure Summary Output
     final_session_balance = await get_account_balance(client)
     summary_color = GREEN if total_profit_loss >= 0 else RED
     print("\n==================================================")
@@ -283,7 +260,9 @@ async def main():
 
     print(f'Mode: "{mode.upper()}"')
 
-    client = DerivClient(ws_url=get_ws_url(account_type=mode))
+    client = DerivClient(
+        ws_url=get_ws_url(account_type=mode, token=TOKEN, app_id=APP_ID)
+    )
     await client.connect()
 
     grand_total_pnl = 0.0
