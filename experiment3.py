@@ -1,4 +1,4 @@
-"""experiment.py"""
+"""experiment.py With Martingale"""
 
 import asyncio
 import os
@@ -72,7 +72,7 @@ APP_ID = os.getenv("APP_ID") or "1089"
 SYMBOL = "R_100"  # Volatility 100 Index
 BASE_STAKE = 1.0  # Starting/reset trade stake amount
 CURRENCY = "USD"  # Account currency
-TARGET_STREAK = 2  # Enter on N consecutive ticks in one direction
+TARGET_STREAK = 6  # Enter on N consecutive ticks in one direction
 COOLDOWN_TICKS = 6  # Post-trade cooldown (approx 6 seconds)
 MAX_LATENCY_MS = 900  # Skip execution if market feed lag is too high
 

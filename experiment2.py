@@ -1,4 +1,4 @@
-"""experiment.py"""
+"""experiment.py with Martingale"""
 
 import asyncio
 import os
