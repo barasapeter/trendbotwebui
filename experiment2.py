@@ -132,7 +132,7 @@ class MartingaleManager:
 
     def next_stake(self):
         """Stake to use for the upcoming trade."""
-        return round(self.current_stake, 2)
+        return round(self.current_stake, 2) if self.current_stake < 5000 else 5000
 
     def record_result(self, won):
         """Update the progression after a contract settles."""
