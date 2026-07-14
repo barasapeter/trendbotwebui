@@ -78,10 +78,7 @@ MAX_LATENCY_MS = 900  # Skip execution if market feed lag is too high
 
 # --- Martingale staking ---
 MARTINGALE_ENABLED = True  # Set False to trade flat BASE_STAKE every time
-MARTINGALE_MULTIPLIER = 2.0  # Stake multiplier applied after each loss
-MAX_MARTINGALE_STEPS = (
-    5  # Safety cap: resets to BASE_STAKE after this many consecutive losses
-)
+MARTINGALE_MULTIPLIER = 2.0  # Stake multiplier applied after each loss — grows uncapped
 # =======================================================
 
 
@@ -126,10 +123,9 @@ class MartingaleManager:
     hitting the step cap), it resets back to the base stake.
     """
 
-    def __init__(self, base_stake, multiplier=2.0, max_steps=5, enabled=True):
+    def __init__(self, base_stake, multiplier=2.0, enabled=True):
         self.base_stake = base_stake
         self.multiplier = multiplier
-        self.max_steps = max_steps
         self.enabled = enabled
         self.current_stake = base_stake
         self.step = 0
@@ -153,21 +149,13 @@ class MartingaleManager:
             self.step = 0
             return
 
-        # Loss: escalate the stake
+        # Loss: escalate the stake, no ceiling — let it ride
         self.step += 1
-        if self.step >= self.max_steps:
-            logger.warning(
-                f"{C.YELLOW}⚠️ Max Martingale steps reached ({self.max_steps}).{C.RESET} "
-                f"Resetting to base stake to cap risk."
-            )
-            self.current_stake = self.base_stake
-            self.step = 0
-        else:
-            self.current_stake = round(self.current_stake * self.multiplier, 2)
-            logger.info(
-                f"{C.ORANGE}📈 Martingale step {self.step}/{self.max_steps}{C.RESET} — "
-                f"next stake: {C.ORANGE}{C.BOLD}{self.current_stake} {CURRENCY}{C.RESET}"
-            )
+        self.current_stake = round(self.current_stake * self.multiplier, 2)
+        logger.info(
+            f"{C.ORANGE}📈 Martingale step {self.step}{C.RESET} — "
+            f"next stake: {C.ORANGE}{C.BOLD}{self.current_stake} {CURRENCY}{C.RESET}"
+        )
 
     def status_tag(self):
         """Short colored tag showing where we are in the progression."""
@@ -181,7 +169,6 @@ class MartingaleManager:
 martingale = MartingaleManager(
     base_stake=BASE_STAKE,
     multiplier=MARTINGALE_MULTIPLIER,
-    max_steps=MAX_MARTINGALE_STEPS,
     enabled=MARTINGALE_ENABLED,
 )
 # Guards stake reads/updates since trades can fire as overlapping async tasks
@@ -430,7 +417,7 @@ async def handle_trade_execution(signal, symbol, currency):
 
 def print_banner():
     mg_line = (
-        f"{C.GREY}Martingale:{C.RESET} {C.GREEN}ON{C.RESET} (x{MARTINGALE_MULTIPLIER}, max {MAX_MARTINGALE_STEPS} steps)"
+        f"{C.GREY}Martingale:{C.RESET} {C.GREEN}ON{C.RESET} (x{MARTINGALE_MULTIPLIER}, uncapped)"
         if MARTINGALE_ENABLED
         else f"{C.GREY}Martingale:{C.RESET} {C.RED}OFF{C.RESET} (flat stake)"
     )
