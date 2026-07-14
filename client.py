@@ -1,4 +1,4 @@
-"""deriv_client.py"""
+"""client.py"""
 
 import json
 import websockets
@@ -11,7 +11,9 @@ class DerivClient:
         self.req_id = 1
 
     async def connect(self):
-        self.ws = await websockets.connect(self.ws_url)
+        # 1. Increase the opening handshake timeout (default is 10s)
+        # Slower connections or heavy DNS/TLS routing often need more time.
+        self.ws = await websockets.connect(self.ws_url, open_timeout=30)
         print("Connected")
 
     async def subscribe(self, payload):
@@ -36,4 +38,6 @@ class DerivClient:
         return json.loads(await self.ws.recv())
 
     async def close(self):
-        await self.ws.close()
+        # 2. Prevent AttributeError by checking if connection exists
+        if self.ws is not None:
+            await self.ws.close()
