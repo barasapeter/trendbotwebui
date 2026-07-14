@@ -70,11 +70,11 @@ APP_ID = os.getenv("APP_ID") or "1089"
 
 # ==================== CONFIGURATION ====================
 SYMBOL = "R_100"  # Volatility 100 Index
-BASE_STAKE = 1.0  # Starting/reset trade stake amount
+BASE_STAKE = 2.0  # Starting/reset trade stake amount
 CURRENCY = "USD"  # Account currency
 TARGET_STREAK = 4  # Enter on N consecutive ticks in one direction
 COOLDOWN_TICKS = 6  # Post-trade cooldown (approx 6 seconds)
-MAX_LATENCY_MS = 900  # Skip execution if market feed lag is too high
+MAX_LATENCY_MS = 1000  # Skip execution if market feed lag is too high
 
 # --- Martingale staking ---
 MARTINGALE_ENABLED = True  # Set False to trade flat BASE_STAKE every time
