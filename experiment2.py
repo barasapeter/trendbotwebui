@@ -70,11 +70,18 @@ APP_ID = os.getenv("APP_ID") or "1089"
 
 # ==================== CONFIGURATION ====================
 SYMBOL = "R_100"  # Volatility 100 Index
-STAKE = 1.0  # Trade stake amount
+BASE_STAKE = 1.0  # Starting/reset trade stake amount
 CURRENCY = "USD"  # Account currency
 TARGET_STREAK = 4  # Enter on N consecutive ticks in one direction
 COOLDOWN_TICKS = 6  # Post-trade cooldown (approx 6 seconds)
 MAX_LATENCY_MS = 900  # Skip execution if market feed lag is too high
+
+# --- Martingale staking ---
+MARTINGALE_ENABLED = True  # Set False to trade flat BASE_STAKE every time
+MARTINGALE_MULTIPLIER = 2.0  # Stake multiplier applied after each loss
+MAX_MARTINGALE_STEPS = (
+    5  # Safety cap: resets to BASE_STAKE after this many consecutive losses
+)
 # =======================================================
 
 
@@ -108,6 +115,77 @@ class SessionStats:
 
 
 stats = SessionStats()
+# =======================================================
+
+
+# ==================== MARTINGALE STAKING ====================
+class MartingaleManager:
+    """
+    Tracks the current stake based on a Martingale progression:
+    on a loss, the next stake is multiplied up; on a win (or after
+    hitting the step cap), it resets back to the base stake.
+    """
+
+    def __init__(self, base_stake, multiplier=2.0, max_steps=5, enabled=True):
+        self.base_stake = base_stake
+        self.multiplier = multiplier
+        self.max_steps = max_steps
+        self.enabled = enabled
+        self.current_stake = base_stake
+        self.step = 0
+
+    def next_stake(self):
+        """Stake to use for the upcoming trade."""
+        return round(self.current_stake, 2)
+
+    def record_result(self, won):
+        """Update the progression after a contract settles."""
+        if not self.enabled:
+            return
+
+        if won:
+            if self.step > 0:
+                logger.info(
+                    f"{C.GREEN}🔁 Martingale reset{C.RESET} — win recovered the drawdown, "
+                    f"back to base stake ({C.BOLD}{self.base_stake} {CURRENCY}{C.RESET})."
+                )
+            self.current_stake = self.base_stake
+            self.step = 0
+            return
+
+        # Loss: escalate the stake
+        self.step += 1
+        if self.step >= self.max_steps:
+            logger.warning(
+                f"{C.YELLOW}⚠️ Max Martingale steps reached ({self.max_steps}).{C.RESET} "
+                f"Resetting to base stake to cap risk."
+            )
+            self.current_stake = self.base_stake
+            self.step = 0
+        else:
+            self.current_stake = round(self.current_stake * self.multiplier, 2)
+            logger.info(
+                f"{C.ORANGE}📈 Martingale step {self.step}/{self.max_steps}{C.RESET} — "
+                f"next stake: {C.ORANGE}{C.BOLD}{self.current_stake} {CURRENCY}{C.RESET}"
+            )
+
+    def status_tag(self):
+        """Short colored tag showing where we are in the progression."""
+        if not self.enabled:
+            return f"{C.GREY}[Flat Stake]{C.RESET}"
+        if self.step == 0:
+            return f"{C.GREEN}[Base]{C.RESET}"
+        return f"{C.ORANGE}[Martingale x{self.step}]{C.RESET}"
+
+
+martingale = MartingaleManager(
+    base_stake=BASE_STAKE,
+    multiplier=MARTINGALE_MULTIPLIER,
+    max_steps=MAX_MARTINGALE_STEPS,
+    enabled=MARTINGALE_ENABLED,
+)
+# Guards stake reads/updates since trades can fire as overlapping async tasks
+stake_lock = asyncio.Lock()
 # =======================================================
 
 
@@ -170,6 +248,7 @@ class TickStreakTracker:
             f"{dir_color}●{C.RESET} Price: {C.WHITE}{C.BOLD}{price:.3f}{C.RESET}  "
             f"Streak: {dir_color}{self.streak:+d}{C.RESET} {direction_emoji} {streak_meter}  "
             f"{C.GREY}│{C.RESET} Latency: {latency_color}{latency}ms{C.RESET}  "
+            f"{C.GREY}│{C.RESET} Next Stake: {C.WHITE}{martingale.next_stake()} {CURRENCY}{C.RESET} {martingale.status_tag()}  "
             f"{C.GREY}│{C.RESET} {stats.summary_line()}"
         )
 
@@ -269,7 +348,7 @@ async def check_contract_status(client, contract_id):
                 logger.warning(
                     f"Could not check status: {C.YELLOW}{response['error'].get('message')}{C.RESET}"
                 )
-                return
+                return None
 
             poc = response.get("proposal_open_contract", {})
             if poc:
@@ -296,33 +375,49 @@ async def check_contract_status(client, contract_id):
                         f"Profit: {C.pl(profit)} {CURRENCY}"
                     )
                     logger.info(stats.summary_line())
-                    return  # Settlement parsed, break out of loop
+                    return profit  # Settlement parsed, hand profit back to caller
 
     except Exception as e:
         logger.error(f"Failed tracking status for contract {contract_id}: {e}")
 
+    return None
 
-async def handle_trade_execution(signal, symbol, stake, currency):
+
+async def handle_trade_execution(signal, symbol, currency):
     """
-    Connects to the API on-demand, executes the contract,
-    monitors the outcome, and gracefully terminates the session.
+    Connects to the API on-demand, executes the contract at the current
+    Martingale-adjusted stake, monitors the outcome, updates the Martingale
+    progression, and gracefully terminates the session.
     """
     # 1. Fetch a fresh authorized trading URL
     ws_url_trades = get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
     trade_client = DerivClient(ws_url_trades)
 
     try:
-        logger.info(f"🔌 {C.BLUE}Opening dedicated trading connection...{C.RESET}")
+        # Lock stake selection so overlapping trades can't race on the same step
+        async with stake_lock:
+            stake = martingale.next_stake()
+            tag = martingale.status_tag()
+
+        logger.info(
+            f"🔌 {C.BLUE}Opening dedicated trading connection...{C.RESET} "
+            f"{C.GREY}|{C.RESET} Stake: {C.BOLD}{stake} {currency}{C.RESET} {tag}"
+        )
         await trade_client.connect()
 
-        # 2. Place trade
+        # 2. Place trade at the Martingale-adjusted stake
         contract_id = await execute_trade_via_proposal(
             trade_client, signal, symbol, stake, currency
         )
 
         # 3. Track resolution using active subscription channel
         if contract_id:
-            await check_contract_status(trade_client, contract_id)
+            profit = await check_contract_status(trade_client, contract_id)
+
+            # 4. Feed the outcome back into the Martingale progression
+            if profit is not None:
+                async with stake_lock:
+                    martingale.record_result(won=profit > 0)
 
     except Exception as e:
         logger.error(f"❌ Execution failed: {e}", exc_info=True)
@@ -334,11 +429,17 @@ async def handle_trade_execution(signal, symbol, stake, currency):
 
 
 def print_banner():
+    mg_line = (
+        f"{C.GREY}Martingale:{C.RESET} {C.GREEN}ON{C.RESET} (x{MARTINGALE_MULTIPLIER}, max {MAX_MARTINGALE_STEPS} steps)"
+        if MARTINGALE_ENABLED
+        else f"{C.GREY}Martingale:{C.RESET} {C.RED}OFF{C.RESET} (flat stake)"
+    )
     banner = f"""
 {C.CYAN}{C.BOLD}╔══════════════════════════════════════════════════════════╗
 ║             🤖  DERIV TICK-STREAK BOT  🤖                  ║
 ╚══════════════════════════════════════════════════════════╝{C.RESET}
-{C.GREY}  Symbol:{C.RESET} {C.WHITE}{SYMBOL}{C.RESET}   {C.GREY}Stake:{C.RESET} {C.WHITE}{STAKE} {CURRENCY}{C.RESET}   {C.GREY}Target Streak:{C.RESET} {C.WHITE}{TARGET_STREAK}{C.RESET}   {C.GREY}Cooldown:{C.RESET} {C.WHITE}{COOLDOWN_TICKS} ticks{C.RESET}
+{C.GREY}  Symbol:{C.RESET} {C.WHITE}{SYMBOL}{C.RESET}   {C.GREY}Base Stake:{C.RESET} {C.WHITE}{BASE_STAKE} {CURRENCY}{C.RESET}   {C.GREY}Target Streak:{C.RESET} {C.WHITE}{TARGET_STREAK}{C.RESET}   {C.GREY}Cooldown:{C.RESET} {C.WHITE}{COOLDOWN_TICKS} ticks{C.RESET}
+  {mg_line}
 """
     print(banner)
 
@@ -399,7 +500,7 @@ async def main():
 
                     # Fire-and-forget: Spins up the execution engine on a separate task thread
                     asyncio.create_task(
-                        handle_trade_execution(signal, SYMBOL, STAKE, CURRENCY)
+                        handle_trade_execution(signal, SYMBOL, CURRENCY)
                     )
 
                     # Reset tracking to prevent double triggers
