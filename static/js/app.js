@@ -12,6 +12,7 @@ const modeButtons = document.querySelectorAll(".mode-btn");
 const waitingIndicator = document.getElementById("waitingIndicator");
 const waitingText = document.getElementById("waitingText");
 const riskInput = document.getElementById("lossTolerance");
+const invertToggle = document.getElementById('myToggle');
 let streamEnded = false;
 
 // ==========================================================================
@@ -967,6 +968,7 @@ runBtn.onclick = () => {
       mode: selectedMode,
       stake: 5,
       risk_tolerance: riskValue,
+      invert: toggle.checked,
     })
   );
 };

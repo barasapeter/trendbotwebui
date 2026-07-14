@@ -302,31 +302,80 @@ async def get_account_balance(client):
     return float(res.get("balance", {}).get("balance", 0.0))
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 async def get_market_trend(client, symbol):
-    """
-    WIN-RATE ENHANCER: Reads immediate tick momentum.
-    Returns ('CALL', label) for an uptrend, or ('PUT', label) for a downtrend.
-    """
+    # We fetch 10 ticks to compare the last 5 ticks against the 5 ticks before them
     payload = {
         "ticks_history": symbol,
         "adjust_start_time": 1,
-        "count": 3,
+        "count": 10,
         "end": "latest",
         "style": "ticks",
     }
-    res = await client.send(payload)
-    if "error" in res or "history" not in res:
-        return "CALL", "SIDEWAYS (Fallback to Rise)"
+
+    try:
+        res = await client.send(payload)
+    except Exception as e:
+        logger.error(f"Network error: {e}")
+        return "HOLD", "CONNECTION_ERROR"
+
+    if not res or "error" in res or "history" not in res:
+        return "HOLD", "API_ERROR_OR_EMPTY"
 
     prices = res["history"].get("prices", [])
-    if len(prices) >= 2:
-        # Compare current tick to previous tick to detect immediate micro-direction
-        if prices[-1] > prices[-2]:
-            return "CALL", "BULLISH MOMENTUM"
-        elif prices[-1] < prices[-2]:
-            return "PUT", "BEARISH MOMENTUM"
+    if len(prices) < 10:
+        return "HOLD", "INSUFFICIENT_TICKS"
 
-    return "CALL", "STAGNANT MARKETS"
+    # Split into two equal 5-tick windows
+    prior_5 = prices[0:5]  # Ticks 1 to 5
+    latest_5 = prices[5:10]  # Ticks 6 to 10 (the most recent)
+
+    # 1. VELOCITY: Net price change over the last 5 ticks
+    # (If we bought a CALL 5 ticks ago, would we be in profit now?)
+    net_change = latest_5[-1] - latest_5[0]
+
+    # 2. CONSISTENCY: Count how many individual ticks moved in our direction
+    # Out of 4 transitions in our 5-tick window, how many went UP vs DOWN?
+    up_steps = sum(1 for i in range(1, len(latest_5)) if latest_5[i] > latest_5[i - 1])
+    down_steps = sum(
+        1 for i in range(1, len(latest_5)) if latest_5[i] < latest_5[i - 1]
+    )
+
+    # 3. ACCELERATION: Compare net change of current 5 ticks vs prior 5 ticks
+    prior_change = prior_5[-1] - prior_5[0]
+
+    # Define a minimum movement threshold to ignore dead/flat markets
+    # (Adjust this based on the asset's typical tick size)
+    min_movement = 0.0001
+
+    # --- DECISION LOGIC ---
+
+    # BULLISH SIGNAL (CALL):
+    # - Net change must be positive and greater than our minimum movement.
+    # - At least 3 out of the 4 tick transitions must have been upward (high consistency).
+    # - The current upward velocity should be stronger than (or holding steady with) the prior window.
+    if net_change > min_movement and up_steps >= 3:
+        if net_change >= prior_change:  # Accelerating or steady
+            return "CALL", "STRONG_BULLISH_MOMENTUM"
+        else:
+            return "HOLD", "BULLISH_EXHAUSTION_WARNING"
+
+    # BEARISH SIGNAL (PUT):
+    # - Net change must be negative.
+    # - At least 3 out of the 4 tick transitions must have been downward.
+    # - The downward velocity should be stronger than (or holding steady with) the prior window.
+    elif net_change < -min_movement and down_steps >= 3:
+        if net_change <= prior_change:  # Accelerating downward
+            return "PUT", "STRONG_BEARISH_MOMENTUM"
+        else:
+            return "HOLD", "BEARISH_EXHAUSTION_WARNING"
+
+    # If the market is zig-zagging (e.g., UP, DOWN, UP, DOWN) or barely moving:
+    return "HOLD", "CHOPPY_OR_FLAT_MARKET"
 
 
 async def wait_for_contract_result(client, contract_id, stop_event):
@@ -551,6 +600,21 @@ async def run_session(
         else:
             current_direction = DIRECTION_MODE
             trend_label = f"Forced {DIRECTION_MODE}"
+        if current_direction == "HOLD":
+            stream(
+                ws,
+                {
+                    "widget": "snackbar",
+                    "title": "HOLDING",
+                    "balance": await get_account_balance(client),
+                    "pl": round(total_profit_loss, 2),
+                    "metadata": {
+                        "message": f"Skipping trade, {trend_label}",
+                        "status": "info",
+                    },
+                },
+            )
+            continue
 
         # PRE-TRADE STOP-LOSS GUARDRAIL
         # Clamp the stake to whatever loss budget actually remains, so a
@@ -745,6 +809,7 @@ async def run_session(
 
         # Color-coded outcome: green for a win/profit round, red for a loss round
         result_str = "WIN" if is_win else "LOSS"
+        print("RESULT:", result_str)
         trade_result_summary = {
             "widget": "trade_result",
             "title": f"TRADE {trade_count}",
