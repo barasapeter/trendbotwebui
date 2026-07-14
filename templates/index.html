@@ -54,10 +54,62 @@
                 background-color: #fff;
                 display: flex;
                 align-items: center;
-                gap: 2px;padding: 9px 18px;">
-                <input class="RT" type="number" min="0" max="100" placeholder="Enter SL" id="lossTolerance" required style="border: none; outline: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--text, #2c2b35); width: 60px; font-family: var(--font-body, 'Nunito', sans-serif); max-width: fit-content;">
-                <!-- Risk indicator will be inserted here by JavaScript -->
+                justify-content: center;
+                gap: 12px;
+                padding: 9px 18px;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;">
+                
+                
+                
+                <!-- Inline Toggle with Label -->
+                <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                    <span style="font-size: 13px; font-weight: 600; color: var(--text, #2c2b35); font-family: var(--font-body, 'Nunito', sans-serif); white-space: nowrap;">Invert PUT</span>
+                    <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: default;">
+                        <input type="checkbox" id="myToggle" style="opacity: 0; width: 0; height: 0; cursor: default;">
+                        <span style="position: absolute; cursor: default; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .3s; border-radius: 34px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);">
+                            <span style="position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,0.25);"></span>
+                        </span>
+                    </label>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 8px; flex: 1; max-width: 300px;">
+                    <span style="font-size: 13px; font-weight: 600; color: var(--text, #2c2b35); font-family: var(--font-body, 'Nunito', sans-serif); white-space: nowrap;">SL</span>
+                    <input class="RT" type="number" min="0" max="100" placeholder="Enter SL" id="lossTolerance" required style="border: 1px solid #e8e6f0; outline: none; background: #f8f7fc; font-size: 16px; font-weight: 600; color: var(--text, #2c2b35); width: 100%; font-family: var(--font-body, 'Nunito', sans-serif); padding: 8px 14px; border-radius: 0px; caret-color: #6C63FF; transition: all 0.3s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.04); padding: 20px; text-align: right;">
+                    <!-- Risk indicator will be inserted here by JavaScript -->
+                </div>
             </div>
+
+            <style>
+            /* #lossTolerance:focus {
+                border-color: #6C63FF !important;
+                background: #ffffff !important;
+                box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.1) !important;
+            } */
+
+            #lossTolerance:hover {
+                border-color: #c8c4d8 !important;
+                background: #fcfcff !important;
+            }
+
+            #lossTolerance::-webkit-outer-spin-button,
+            #lossTolerance::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+            #lossTolerance {
+                -moz-appearance: textfield;
+            }
+
+            #myToggle:checked + span {
+                background-color: #6C63FF !important;
+            }
+
+            #myToggle:checked + span span {
+                transform: translateX(20px) !important;
+            }
+            </style>
             <button class="btn-run" id="runBtn" type="button" disabled>Execute</button>
         </div>
 
