@@ -76,7 +76,7 @@ APP_ID = os.getenv("APP_ID") or "1089"
 
 # ==================== CONFIGURATION ====================
 SYMBOL = "R_100"
-BASE_STAKE = 0.35
+BASE_STAKE = 1
 CURRENCY = "USD"
 TARGET_STREAK = 4
 COOLDOWN_SECONDS = 6

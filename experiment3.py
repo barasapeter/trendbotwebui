@@ -1,4 +1,4 @@
-"""experiment.py With Martingale"""
+"""experiment2.py - Optimized with Advanced Strategy Controls"""
 
 import asyncio
 import os
@@ -6,9 +6,10 @@ import logging
 import sys
 import time
 import json
+from datetime import datetime
 from dotenv import load_dotenv
 from auth import get_ws_url
-from client import DerivClient
+from client_experiment3 import DerivClient
 
 
 # ==================== TERMINAL COLORS ====================
@@ -28,33 +29,38 @@ class C:
     GREY = "\033[38;5;244m"
     WHITE = "\033[38;5;255m"
     ORANGE = "\033[38;5;208m"
+    PINK = "\033[38;5;205m"
+    PURPLE = "\033[38;5;129m"
 
     @staticmethod
     def pl(value):
-        """Color a P/L value green (profit), red (loss), or grey (flat)."""
         color = C.GREEN if value > 0 else C.RED if value < 0 else C.GREY
         sign = "+" if value > 0 else ""
         return f"{color}{sign}{value:.2f}{C.RESET}"
 
 
 class ColorFormatter(logging.Formatter):
-    """Custom formatter that tints log lines by level, keeping message content
-    (which may already carry its own ANSI colors) untouched."""
-
-    LEVEL_COLORS = {
-        logging.DEBUG: C.GREY,
-        logging.INFO: C.WHITE,
-        logging.WARNING: C.YELLOW,
-        logging.ERROR: C.RED,
-        logging.CRITICAL: C.RED + C.BOLD,
-    }
+    def formatTime(self, record, datefmt=None):
+        ct = datetime.fromtimestamp(record.created)
+        if datefmt:
+            return ct.strftime(datefmt)
+        return ct.strftime("%H:%M:%S.%f")[:-3]
 
     def format(self, record):
         base_color = self.LEVEL_COLORS.get(record.levelno, C.WHITE)
-        timestamp = f"{C.GREY}{self.formatTime(record, '%H:%M:%S')}{C.RESET}"
+        timestamp = f"{C.GREY}{self.formatTime(record, '%H:%M:%S.%f')[:-3]}{C.RESET}"
         level = f"{base_color}{record.levelname:<8}{C.RESET}"
         message = record.getMessage()
         return f"{timestamp} {level} {message}"
+
+
+ColorFormatter.LEVEL_COLORS = {
+    logging.DEBUG: C.GREY,
+    logging.INFO: C.WHITE,
+    logging.WARNING: C.YELLOW,
+    logging.ERROR: C.RED,
+    logging.CRITICAL: C.RED + C.BOLD,
+}
 
 
 # Setup logging
@@ -69,98 +75,352 @@ API_TOKEN = os.getenv("TOKEN")
 APP_ID = os.getenv("APP_ID") or "1089"
 
 # ==================== CONFIGURATION ====================
-SYMBOL = "R_100"  # Volatility 100 Index
-BASE_STAKE = 1.0  # Starting/reset trade stake amount
-CURRENCY = "USD"  # Account currency
-TARGET_STREAK = 6  # Enter on N consecutive ticks in one direction
-COOLDOWN_TICKS = 6  # Post-trade cooldown (approx 6 seconds)
-MAX_LATENCY_MS = 900  # Skip execution if market feed lag is too high
+SYMBOL = "R_100"
+BASE_STAKE = 1.00  # Starting/reset trade stake amount
+CURRENCY = "USD"
+TARGET_STREAK = 4  # REDUCED from 5 to 4 for better trade frequency
+CONTRACT_DURATION = 5  # Duration in ticks
+COOLDOWN_SECONDS = 6
+MAX_LATENCY_MS = 1000
 
-# --- Martingale staking ---
-MARTINGALE_ENABLED = True  # Set False to trade flat BASE_STAKE every time
-MARTINGALE_MULTIPLIER = 2.0  # Stake multiplier applied after each loss — grows uncapped
+# --- Martingale Configuration ---
+MARTINGALE_ENABLED = True
+MARTINGALE_MULTIPLIER = 2.0
+MAX_MARTINGALE_STEPS = 5  # NEW: Stop after 5 consecutive losses
+STOP_LOSS_PERCENT = 50  # NEW: Stop trading if drawdown exceeds this % of balance
+
+# --- Trend Filter Configuration ---
+USE_TREND_FILTER = True  # NEW: Skip trades during strong trends
+TREND_LOOKBACK = 20  # Number of ticks to analyze
+TREND_THRESHOLD = 0.3  # Minimum slope to consider a strong trend
+
+# --- Signal Confirmation ---
+USE_CONFIRMATION = True  # NEW: Require confirmation tick
+CONFIRMATION_DELAY = 1  # Wait 1 tick for confirmation
+
+# --- Connection Health ---
+HEARTBEAT_INTERVAL = 15
+MAX_RECONNECT_ATTEMPTS = 5
+RECONNECT_DELAY = 2
 # =======================================================
 
 
 # ==================== SESSION P&L TRACKER ====================
 class SessionStats:
-    """Tracks running net P&L and win/loss counts for the whole session."""
-
-    def __init__(self):
+    def __init__(self, initial_balance=1000.0):
+        self.initial_balance = initial_balance
         self.net_pl = 0.0
         self.wins = 0
         self.losses = 0
         self.trades = 0
+        self.start_time = datetime.now()
+        self.trade_history = []
+        self.pending_trades = {}
+        self.consecutive_losses = 0
+        self.max_consecutive_losses = 0
+        self.max_drawdown = 0.0
+        self.peak_balance = initial_balance
 
-    def record(self, profit):
+    def get_current_balance(self):
+        return self.initial_balance + self.net_pl
+
+    def get_drawdown_percent(self):
+        current = self.get_current_balance()
+        if self.peak_balance > 0:
+            return ((self.peak_balance - current) / self.peak_balance) * 100
+        return 0.0
+
+    def record(self, profit, contract_id, signal, stake, entry_price, exit_price):
         self.net_pl += profit
         self.trades += 1
         if profit > 0:
             self.wins += 1
-        elif profit < 0:
+            self.consecutive_losses = 0
+        else:
             self.losses += 1
+            self.consecutive_losses += 1
+            if self.consecutive_losses > self.max_consecutive_losses:
+                self.max_consecutive_losses = self.consecutive_losses
+
+        # Track drawdown
+        current_balance = self.get_current_balance()
+        if current_balance > self.peak_balance:
+            self.peak_balance = current_balance
+        drawdown = self.get_drawdown_percent()
+        if drawdown > self.max_drawdown:
+            self.max_drawdown = drawdown
+
+        self.trade_history.append(
+            {
+                "time": datetime.now().isoformat(),
+                "contract_id": contract_id,
+                "signal": signal,
+                "stake": stake,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "profit": profit,
+                "result": "WON" if profit > 0 else "LOST",
+                "balance": current_balance,
+            }
+        )
 
     def summary_line(self):
         win_rate = (self.wins / self.trades * 100) if self.trades else 0.0
         pl_color = C.GREEN if self.net_pl >= 0 else C.RED
+        active = (
+            f" | {C.YELLOW}Active: {len(self.pending_trades)}{C.RESET}"
+            if self.pending_trades
+            else ""
+        )
+        dd = (
+            f" | {C.RED}DD: {self.max_drawdown:.1f}%{C.RESET}"
+            if self.max_drawdown > 0
+            else ""
+        )
         return (
             f"{C.BOLD}📊 SESSION{C.RESET} | Trades: {C.CYAN}{self.trades}{C.RESET} "
             f"| Wins: {C.GREEN}{self.wins}{C.RESET} | Losses: {C.RED}{self.losses}{C.RESET} "
             f"| Win Rate: {C.CYAN}{win_rate:.1f}%{C.RESET} "
             f"| Net P/L: {pl_color}{C.BOLD}{self.net_pl:+.2f} {CURRENCY}{C.RESET}"
+            f"{active}{dd}"
         )
 
+    def detailed_summary(self):
+        if not self.trade_history:
+            return "No trades executed."
 
-stats = SessionStats()
+        lines = [
+            f"\n{C.BOLD}{C.CYAN}═══════════════════════════════════════════════════════════{C.RESET}",
+            f"{C.BOLD}📊 SESSION DETAILED SUMMARY{C.RESET}",
+            f"{C.GREY}Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}{C.RESET}",
+            f"{C.GREY}Duration: {datetime.now() - self.start_time}{C.RESET}",
+            f"",
+            f"{C.BOLD}Performance:{C.RESET}",
+            f"  Trades: {self.trades}  Wins: {C.GREEN}{self.wins}{C.RESET}  Losses: {C.RED}{self.losses}{C.RESET}  Win Rate: {C.CYAN}{(self.wins/self.trades*100):.1f}%{C.RESET}",
+            f"  Net P/L: {C.pl(self.net_pl)} {CURRENCY}",
+            f"  Current Balance: {C.WHITE}{self.get_current_balance():.2f} {CURRENCY}{C.RESET}",
+            f"  Max Drawdown: {C.RED}{self.max_drawdown:.1f}%{C.RESET}",
+            f"  Max Consecutive Losses: {C.RED}{self.max_consecutive_losses}{C.RESET}",
+            f"",
+            f"{C.BOLD}{C.UNDERLINE}Trade History:{C.RESET}",
+        ]
+
+        for i, trade in enumerate(self.trade_history, 1):
+            result_color = C.GREEN if trade["result"] == "WON" else C.RED
+            lines.append(
+                f"  #{i:2d} {trade['time'][11:19]} {trade['signal']:4s} "
+                f"Stake: {trade['stake']:5.2f}  Entry: {trade['entry_price']:.3f}  "
+                f"Exit: {trade['exit_price']:.3f}  {result_color}{trade['result']:4s}{C.RESET}  "
+                f"P/L: {C.pl(trade['profit'])}  Bal: {trade['balance']:.2f}"
+            )
+
+        lines.append(
+            f"{C.CYAN}═══════════════════════════════════════════════════════════{C.RESET}"
+        )
+        return "\n".join(lines)
+
+
+stats = SessionStats(initial_balance=1000.0)
 # =======================================================
 
 
-# ==================== MARTINGALE STAKING ====================
-class MartingaleManager:
-    """
-    Tracks the current stake based on a Martingale progression:
-    on a loss, the next stake is multiplied up; on a win (or after
-    hitting the step cap), it resets back to the base stake.
-    """
+# ==================== TREND FILTER ====================
+class TrendFilter:
+    """Detects strong trends to avoid trading against them."""
 
-    def __init__(self, base_stake, multiplier=2.0, enabled=True):
+    def __init__(self, lookback=20, threshold=0.3):
+        self.prices = []
+        self.lookback = lookback
+        self.threshold = threshold
+        self.slope = 0.0
+        self.trend_strength = 0.0  # -1 to 1, negative = downtrend, positive = uptrend
+
+    def add_price(self, price):
+        self.prices.append(price)
+        if len(self.prices) > self.lookback:
+            self.prices.pop(0)
+        self._calculate_trend()
+
+    def _calculate_trend(self):
+        """Calculate trend strength using linear regression."""
+        if len(self.prices) < self.lookback // 2:
+            self.slope = 0.0
+            self.trend_strength = 0.0
+            return
+
+        n = len(self.prices)
+        x_sum = sum(range(n))
+        y_sum = sum(self.prices)
+        xy_sum = sum(i * p for i, p in enumerate(self.prices))
+        x2_sum = sum(i * i for i in range(n))
+
+        # Calculate slope
+        denominator = n * x2_sum - x_sum * x_sum
+        if denominator != 0:
+            slope = (n * xy_sum - x_sum * y_sum) / denominator
+        else:
+            slope = 0.0
+
+        # Normalize slope to get trend strength (-1 to 1)
+        # Use price range to normalize
+        if len(self.prices) > 1:
+            price_range = max(self.prices) - min(self.prices)
+            if price_range > 0:
+                # Slope is in price units per tick
+                # Normalize by average price
+                avg_price = sum(self.prices) / len(self.prices)
+                if avg_price > 0:
+                    normalized_slope = (
+                        slope / avg_price * 100
+                    )  # Percent change per tick
+                    # Clamp to -1 to 1
+                    self.trend_strength = max(-1.0, min(1.0, normalized_slope * 10))
+                else:
+                    self.trend_strength = 0.0
+            else:
+                self.trend_strength = 0.0
+        else:
+            self.trend_strength = 0.0
+
+        self.slope = slope
+
+    def is_strong_trend(self):
+        """Returns True if a strong trend is detected."""
+        if len(self.prices) < self.lookback // 2:
+            return False
+        return abs(self.trend_strength) > self.threshold
+
+    def get_trend_direction(self):
+        """Returns 'UP', 'DOWN', or 'NEUTRAL'."""
+        if abs(self.trend_strength) <= self.threshold:
+            return "NEUTRAL"
+        return "UP" if self.trend_strength > 0 else "DOWN"
+
+    def should_skip_trade(self, signal):
+        """Determine if we should skip a trade based on trend."""
+        if not USE_TREND_FILTER:
+            return False
+
+        trend_dir = self.get_trend_direction()
+
+        # Don't trade against strong trends
+        if trend_dir == "UP" and signal == "PUT":
+            logger.info(
+                f"{C.YELLOW}⏭️ Skipping PUT - Strong uptrend detected (strength: {self.trend_strength:.2f}){C.RESET}"
+            )
+            return True
+        if trend_dir == "DOWN" and signal == "CALL":
+            logger.info(
+                f"{C.YELLOW}⏭️ Skipping CALL - Strong downtrend detected (strength: {self.trend_strength:.2f}){C.RESET}"
+            )
+            return True
+
+        return False
+
+
+# ==================== MARTINGALE MANAGER ====================
+class MartingaleManager:
+    def __init__(self, base_stake, multiplier=2.0, enabled=True, max_steps=5):
         self.base_stake = base_stake
         self.multiplier = multiplier
         self.enabled = enabled
+        self.max_steps = max_steps
         self.current_stake = base_stake
         self.step = 0
+        self.loss_streak = 0
+        self._lock = asyncio.Lock()
+        self._pending_stake = None
+        self._is_prefetched = False
+        self._stopped = False  # Stop trading if max steps reached
 
-    def next_stake(self):
-        """Stake to use for the upcoming trade."""
-        return round(self.current_stake, 2)
+    async def get_current_stake(self):
+        async with self._lock:
+            return self.current_stake
 
-    def record_result(self, won):
-        """Update the progression after a contract settles."""
+    async def next_stake_async(self):
+        async with self._lock:
+            if self._stopped:
+                logger.warning(
+                    f"{C.RED}❌ Martingale stopped - max steps reached!{C.RESET}"
+                )
+                return None
+
+            if self._pending_stake is not None:
+                stake = self._pending_stake
+                self._pending_stake = None
+                self._is_prefetched = False
+                return round(stake, 2)
+            return round(self.current_stake, 2)
+
+    async def pre_fetch_next_stake(self):
+        async with self._lock:
+            if not self.enabled or self._stopped:
+                return
+
+            # Check if we've reached max steps
+            if self.step >= self.max_steps:
+                self._stopped = True
+                logger.warning(
+                    f"{C.RED}🛑 Martingale stopped after {self.max_steps} steps!{C.RESET} "
+                    f"{C.GREY}Resume manually or restart.{C.RESET}"
+                )
+                return
+
+            # Calculate next stake
+            next_stake = round(self.current_stake * self.multiplier, 2)
+
+            # Update state immediately
+            self.current_stake = next_stake
+            self._pending_stake = next_stake
+            self._is_prefetched = True
+            self.step += 1
+            self.loss_streak += 1
+
+            remaining = self.max_steps - self.step
+            logger.info(
+                f"{C.ORANGE}📈 Martingale pre-fetched step {self.step}/{self.max_steps}{C.RESET} — "
+                f"next stake ready: {C.ORANGE}{C.BOLD}{next_stake} {CURRENCY}{C.RESET} "
+                f"{C.GREY}(loss streak: {self.loss_streak}, {remaining} steps remaining){C.RESET}"
+            )
+
+    async def record_result_async(self, won):
         if not self.enabled:
             return
 
-        if won:
-            if self.step > 0:
-                logger.info(
-                    f"{C.GREEN}🔁 Martingale reset{C.RESET} — win recovered the drawdown, "
-                    f"back to base stake ({C.BOLD}{self.base_stake} {CURRENCY}{C.RESET})."
-                )
-            self.current_stake = self.base_stake
-            self.step = 0
-            return
+        async with self._lock:
+            if won:
+                if self.step > 0 or self._is_prefetched:
+                    logger.info(
+                        f"{C.GREEN}🔁 Martingale reset{C.RESET} — win recovered the drawdown, "
+                        f"back to base stake ({C.BOLD}{self.base_stake} {CURRENCY}{C.RESET})."
+                    )
+                self.current_stake = self.base_stake
+                self.step = 0
+                self.loss_streak = 0
+                self._pending_stake = None
+                self._is_prefetched = False
+                self._stopped = False
+                return
 
-        # Loss: escalate the stake, no ceiling — let it ride
-        self.step += 1
-        self.current_stake = round(self.current_stake * self.multiplier, 2)
-        logger.info(
-            f"{C.ORANGE}📈 Martingale step {self.step}{C.RESET} — "
-            f"next stake: {C.ORANGE}{C.BOLD}{self.current_stake} {CURRENCY}{C.RESET}"
-        )
+            # Loss: current_stake already updated during pre_fetch
+            self._pending_stake = None
+            self._is_prefetched = False
+
+            # Check if we've reached max steps
+            if self.step >= self.max_steps:
+                self._stopped = True
+                logger.warning(
+                    f"{C.RED}🛑 Martingale reached max steps ({self.max_steps})!{C.RESET} "
+                    f"{C.GREY}Stopping further trades.{C.RESET}"
+                )
 
     def status_tag(self):
-        """Short colored tag showing where we are in the progression."""
         if not self.enabled:
             return f"{C.GREY}[Flat Stake]{C.RESET}"
+        if self._stopped:
+            return f"{C.RED}[STOPPED]{C.RESET}"
+        if self._is_prefetched or self._pending_stake is not None:
+            return f"{C.ORANGE}[Pre-fetched x{self.step}]{C.RESET}"
         if self.step == 0:
             return f"{C.GREEN}[Base]{C.RESET}"
         return f"{C.ORANGE}[Martingale x{self.step}]{C.RESET}"
@@ -170,43 +430,418 @@ martingale = MartingaleManager(
     base_stake=BASE_STAKE,
     multiplier=MARTINGALE_MULTIPLIER,
     enabled=MARTINGALE_ENABLED,
+    max_steps=MAX_MARTINGALE_STEPS,
 )
-# Guards stake reads/updates since trades can fire as overlapping async tasks
-stake_lock = asyncio.Lock()
 # =======================================================
 
 
+# ==================== PERSISTENT TRADE MANAGER ====================
+class PersistentTradeManager:
+    def __init__(self):
+        self.execution_client = None
+        self.polling_client = None
+        self.lock = asyncio.Lock()
+        self.pending_trades = asyncio.Queue()
+        self.last_trade_time = 0
+        self.cooldown_seconds = COOLDOWN_SECONDS
+        self.heartbeat_task = None
+        self.reconnect_attempts = 0
+        self._is_closing = False
+        self._trade_lock = asyncio.Lock()
+        self._pending_contracts = {}
+
+    async def _create_client(self, label="client"):
+        try:
+            ws_url = get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
+            client = DerivClient(ws_url)
+            await client.connect()
+            return client
+        except Exception as e:
+            logger.error(f"{C.RED}❌ Failed to create {label}: {e}{C.RESET}")
+            return None
+
+    async def ensure_execution_client(self):
+        if self._is_closing:
+            return None
+
+        if self.execution_client is None or not self.execution_client.is_connected:
+            try:
+                if self.execution_client:
+                    await self.execution_client.close()
+                self.execution_client = await self._create_client("execution")
+                if self.execution_client:
+                    logger.info(f"{C.GREEN}✅ Execution client ready.{C.RESET}")
+            except Exception as e:
+                logger.error(f"{C.RED}❌ Execution client failed: {e}{C.RESET}")
+                return None
+
+        return self.execution_client
+
+    async def ensure_polling_client(self):
+        if self._is_closing:
+            return None
+
+        if self.polling_client is None or not self.polling_client.is_connected:
+            try:
+                if self.polling_client:
+                    await self.polling_client.close()
+                self.polling_client = await self._create_client("polling")
+                if self.polling_client:
+                    logger.info(f"{C.GREEN}✅ Polling client ready.{C.RESET}")
+            except Exception as e:
+                logger.error(f"{C.RED}❌ Polling client failed: {e}{C.RESET}")
+                return None
+
+        return self.polling_client
+
+    async def heartbeat(self):
+        while not self._is_closing:
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+            if self._is_closing:
+                break
+            try:
+                if self.execution_client and self.execution_client.ws:
+                    await self.execution_client.ping()
+                if self.polling_client and self.polling_client.ws:
+                    await self.polling_client.ping()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(
+                    f"{C.YELLOW}⚠️ Heartbeat warning: {str(e)[:50]}{C.RESET}"
+                )
+
+    async def execute_trade_instant(self, signal, stake, symbol, currency):
+        start_time = time.time()
+
+        client = await self.ensure_execution_client()
+        if client is None:
+            return None, None
+
+        proposal_payload = {
+            "proposal": 1,
+            "amount": stake,
+            "basis": "stake",
+            "contract_type": signal,
+            "currency": currency,
+            "duration": CONTRACT_DURATION,
+            "duration_unit": "t",
+            "underlying_symbol": symbol,
+        }
+
+        try:
+            proposal_start = time.time()
+            proposal_res = await client.send(proposal_payload)
+            proposal_time = (time.time() - proposal_start) * 1000
+
+            if "error" in proposal_res:
+                logger.error(
+                    f"{C.RED}❌ Proposal failed: {proposal_res['error'].get('message')}{C.RESET}"
+                )
+                return None, None
+
+            proposal_data = proposal_res.get("proposal", {})
+            proposal_id = proposal_data.get("id")
+
+            entry_price = proposal_data.get("entry_spot")
+            if entry_price is None:
+                entry_price = proposal_data.get("spot")
+            if entry_price is None:
+                entry_price = proposal_data.get("quote")
+            if entry_price is None:
+                entry_price = 0.0
+
+            if not proposal_id:
+                return None, None
+
+            buy_start = time.time()
+            buy_payload = {"buy": proposal_id, "price": stake}
+            buy_res = await client.send(buy_payload)
+            buy_time = (time.time() - buy_start) * 1000
+
+            if "error" in buy_res:
+                logger.error(
+                    f"{C.RED}❌ Purchase failed: {buy_res['error'].get('message')}{C.RESET}"
+                )
+                return None, None
+
+            contract_id = buy_res.get("buy", {}).get("contract_id")
+            total_time = (time.time() - start_time) * 1000
+
+            logger.info(
+                f"{C.GREEN}✅ Trade executed!{C.RESET} Contract: {C.CYAN}{contract_id}{C.RESET} "
+                f"{C.GREY}| Entry: {C.WHITE}{entry_price:.3f}{C.RESET} "
+                f"{C.GREY}| Latency: Proposal {proposal_time:.0f}ms + Buy {buy_time:.0f}ms = {total_time:.0f}ms{C.RESET}"
+            )
+
+            return contract_id, entry_price
+
+        except Exception as e:
+            logger.error(f"{C.RED}❌ Trade execution error: {e}{C.RESET}")
+            return None, None
+
+    async def poll_contract_status(self, contract_id):
+        client = await self.ensure_polling_client()
+        if client is None:
+            return None, None
+
+        start_time = time.time()
+        poll_count = 0
+
+        while time.time() - start_time < 25:
+            if self._is_closing:
+                return None, None
+            try:
+                # Use a shorter timeout for each poll attempt
+                response = await asyncio.wait_for(
+                    client.send(
+                        {"proposal_open_contract": 1, "contract_id": contract_id},
+                        timeout=3.0,
+                    ),
+                    timeout=4.0,
+                )
+                poll_count += 1
+
+                if "error" in response:
+                    await asyncio.sleep(0.3)
+                    continue
+
+                poc = response.get("proposal_open_contract", {})
+                if poc.get("is_sold"):
+                    status = poc.get("status", "unknown").upper()
+                    profit = float(poc.get("profit", 0.0))
+                    exit_price = float(poc.get("exit_spot", 0.0))
+
+                    emoji = (
+                        "🏆" if status == "WON" else "❌" if status == "LOST" else "⏳"
+                    )
+                    status_color = (
+                        C.GREEN
+                        if status == "WON"
+                        else C.RED if status == "LOST" else C.YELLOW
+                    )
+
+                    logger.info(
+                        f"{emoji} {C.BOLD}CONTRACT {contract_id} RESULT:{C.RESET} "
+                        f"{status_color}{status}{C.RESET} {C.GREY}|{C.RESET} "
+                        f"Exit: {C.WHITE}{exit_price:.3f}{C.RESET} {C.GREY}|{C.RESET} "
+                        f"Profit: {C.pl(profit)} {CURRENCY} {C.GREY}(polls: {poll_count}){C.RESET}"
+                    )
+                    return profit, exit_price
+
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"{C.YELLOW}⚠️ Poll {poll_count+1} timed out, retrying...{C.RESET}"
+                )
+                # Refresh client connection
+                self.polling_client = None
+                client = await self.ensure_polling_client()
+                if client is None:
+                    logger.error(
+                        f"{C.RED}❌ Failed to reconnect polling client.{C.RESET}"
+                    )
+                    return None, None
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"{C.YELLOW}⚠️ Status poll error: {e}{C.RESET}")
+                # Refresh client connection
+                self.polling_client = None
+                client = await self.ensure_polling_client()
+                if client is None:
+                    logger.error(
+                        f"{C.RED}❌ Failed to reconnect polling client.{C.RESET}"
+                    )
+                    return None, None
+
+            await asyncio.sleep(0.3)
+
+        logger.warning(
+            f"{C.YELLOW}⏱️ Contract {contract_id} timed out after 25 seconds.{C.RESET}"
+        )
+        return None, None
+
+    async def process_trade(self, signal, symbol, currency):
+        if self._is_closing:
+            return
+
+        # Check if Martingale is stopped
+        if martingale._stopped:
+            logger.warning(
+                f"{C.RED}❌ Martingale stopped - no more trades allowed.{C.RESET}"
+            )
+            return
+
+        # Check cooldown
+        current_time = time.time()
+        if current_time - self.last_trade_time < self.cooldown_seconds:
+            remaining = self.cooldown_seconds - (current_time - self.last_trade_time)
+            logger.info(
+                f"{C.GREY}⏳ Cooldown active ({remaining:.1f}s remaining){C.RESET}"
+            )
+            return
+
+        # Check drawdown limit
+        drawdown = stats.get_drawdown_percent()
+        if drawdown > STOP_LOSS_PERCENT:
+            logger.warning(
+                f"{C.RED}🛑 Stop loss triggered! Drawdown: {drawdown:.1f}% > {STOP_LOSS_PERCENT}%{C.RESET}"
+            )
+            return
+
+        # Get stake
+        stake = await martingale.next_stake_async()
+        if stake is None:
+            logger.warning(
+                f"{C.RED}❌ No stake available - martingale stopped.{C.RESET}"
+            )
+            return
+
+        async with self._trade_lock:
+            self.last_trade_time = time.time()
+
+            sig_color = C.GREEN if signal == "CALL" else C.RED
+            logger.info(
+                f"{C.PURPLE}⚡ EXECUTING{C.RESET} {sig_color}{signal}{C.RESET} at "
+                f"{C.BOLD}{stake} {CURRENCY}{C.RESET} {martingale.status_tag()}"
+            )
+
+            contract_id, entry_price = await self.execute_trade_instant(
+                signal, stake, symbol, currency
+            )
+
+            if not contract_id:
+                logger.error(f"{C.RED}❌ Failed to execute {signal} trade.{C.RESET}")
+                return
+
+            stats.pending_trades[contract_id] = {
+                "signal": signal,
+                "stake": stake,
+                "entry": entry_price,
+            }
+
+            # Pre-fetch next stake
+            await martingale.pre_fetch_next_stake()
+
+            # Resolve in background
+            asyncio.create_task(
+                self._resolve_trade(contract_id, signal, stake, entry_price)
+            )
+
+    async def _resolve_trade(self, contract_id, signal, stake, entry_price):
+        profit, exit_price = await self.poll_contract_status(contract_id)
+
+        stats.pending_trades.pop(contract_id, None)
+
+        if profit is not None:
+            stats.record(profit, contract_id, signal, stake, entry_price, exit_price)
+            logger.info(stats.summary_line())
+
+            # Record result
+            await martingale.record_result_async(won=profit > 0)
+        else:
+            logger.error(
+                f"{C.RED}❌ Could not determine outcome for contract {contract_id}{C.RESET}"
+            )
+
+    async def trade_worker(self):
+        self.heartbeat_task = asyncio.create_task(self.heartbeat())
+        logger.info(
+            f"{C.GREEN}💓 Heartbeat started (interval: {HEARTBEAT_INTERVAL}s){C.RESET}"
+        )
+
+        while not self._is_closing:
+            try:
+                signal, symbol, currency = await self.pending_trades.get()
+                await self.process_trade(signal, symbol, currency)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"{C.RED}❌ Trade worker error: {e}{C.RESET}")
+                import traceback
+
+                traceback.print_exc()
+            finally:
+                self.pending_trades.task_done()
+
+    def queue_trade(self, signal, symbol, currency):
+        if self._is_closing:
+            return
+        if martingale._stopped:
+            logger.warning(
+                f"{C.RED}❌ Cannot queue trade - martingale stopped.{C.RESET}"
+            )
+            return
+        self.pending_trades.put_nowait((signal, symbol, currency))
+
+    async def close(self):
+        self._is_closing = True
+
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except:
+                pass
+
+        if self.execution_client:
+            try:
+                await self.execution_client.close()
+                logger.info(f"{C.GREY}🔌 Execution connection closed.{C.RESET}")
+            except:
+                pass
+
+        if self.polling_client:
+            try:
+                await self.polling_client.close()
+                logger.info(f"{C.GREY}🔌 Polling connection closed.{C.RESET}")
+            except:
+                pass
+
+
+# ==================== TICK STREAK TRACKER ====================
 class TickStreakTracker:
     def __init__(self, target_streak=4, max_allowed_latency_ms=350):
         self.prices = []
-        self.streak = 0  # Positive for UP streak, negative for DOWN streak
+        self.timestamps = []
+        self.streak = 0
         self.target_streak = target_streak
         self.max_latency = max_allowed_latency_ms
         self.clock_drift_warning_triggered = False
+        self.last_signal_time = 0
+        self.signal_cooldown = 1.0
+        self.pending_signal = None
+        self.pending_price = None
+        self.use_confirmation = USE_CONFIRMATION
+        self.confirmation_delay = CONFIRMATION_DELAY
+        self.confirmation_counter = 0
+        self.trend_filter = TrendFilter(
+            lookback=TREND_LOOKBACK, threshold=TREND_THRESHOLD
+        )
 
     def process_new_tick(self, price, server_epoch):
-        # 1. Network Latency Check
+        # Latency check
         server_epoch_ms = int(server_epoch * 1000)
         local_time_ms = int(time.time() * 1000)
         latency = local_time_ms - server_epoch_ms
 
-        # Trigger warning if PC system time differs significantly from Deriv server
         if abs(latency) > 10000 and not self.clock_drift_warning_triggered:
             logger.warning(
                 f"🚨 {C.YELLOW}SYSTEM CLOCK OUT OF SYNC{C.RESET}: Your local time differs from the "
-                f"server by {C.BOLD}{latency/1000:.1f}s{C.RESET}. "
-                "Synchronize your computer clock via NTP to ensure accurate latency checks!"
+                f"server by {C.BOLD}{latency/1000:.1f}s{C.RESET}."
             )
             self.clock_drift_warning_triggered = True
 
-        # Skip execution if network is struggling
         if latency > self.max_latency:
             logger.warning(
-                f"⚠️  Skipping tick ({C.ORANGE}High Latency: {latency}ms{C.RESET})"
+                f"{C.YELLOW}⚠️ Skipping tick ({C.ORANGE}High Latency: {latency}ms{C.RESET})"
             )
             return "SKIP_LATENCY"
 
-        # 2. Track Streaks
+        # Track price for trend filter
+        self.trend_filter.add_price(price)
+
+        # Track streak
         if len(self.prices) > 0:
             last_price = self.prices[-1]
             if price > last_price:
@@ -214,13 +849,15 @@ class TickStreakTracker:
             elif price < last_price:
                 self.streak = self.streak - 1 if self.streak < 0 else -1
             else:
-                self.streak = 0  # Flat tick breaks momentum streak
+                self.streak = 0
 
         self.prices.append(price)
+        self.timestamps.append(time.time())
         if len(self.prices) > 20:
             self.prices.pop(0)
+            self.timestamps.pop(0)
 
-        # 3. Output Current Status (dope streak meter + colored direction)
+        # Display status
         if self.streak > 0:
             direction_emoji, dir_color = "📈", C.GREEN
         elif self.streak < 0:
@@ -231,193 +868,105 @@ class TickStreakTracker:
         streak_meter = self._streak_meter(dir_color)
         latency_color = C.GREEN if latency < self.max_latency * 0.5 else C.YELLOW
 
+        tick_freq = "N/A"
+        if len(self.timestamps) > 1:
+            avg_interval = (self.timestamps[-1] - self.timestamps[0]) / (
+                len(self.timestamps) - 1
+            )
+            tick_freq = f"{avg_interval*1000:.0f}ms"
+
+        stake = martingale.current_stake
+        if martingale._pending_stake is not None:
+            stake = martingale._pending_stake
+
+        # Show trend information
+        trend_info = ""
+        if USE_TREND_FILTER:
+            trend_dir = self.trend_filter.get_trend_direction()
+            trend_strength = self.trend_filter.trend_strength
+            trend_color = (
+                C.RED
+                if trend_dir == "DOWN"
+                else C.GREEN if trend_dir == "UP" else C.GREY
+            )
+            trend_info = f" {C.GREY}|{C.RESET} Trend: {trend_color}{trend_dir}{C.RESET} ({trend_strength:.2f})"
+
         logger.info(
             f"{dir_color}●{C.RESET} Price: {C.WHITE}{C.BOLD}{price:.3f}{C.RESET}  "
             f"Streak: {dir_color}{self.streak:+d}{C.RESET} {direction_emoji} {streak_meter}  "
-            f"{C.GREY}│{C.RESET} Latency: {latency_color}{latency}ms{C.RESET}  "
-            f"{C.GREY}│{C.RESET} Next Stake: {C.WHITE}{martingale.next_stake()} {CURRENCY}{C.RESET} {martingale.status_tag()}  "
+            f"{C.GREY}│{C.RESET} Latency: {latency_color}{latency}ms{C.RESET} "
+            f"{C.GREY}({tick_freq}){C.RESET}  "
+            f"{C.GREY}│{C.RESET} Next Stake: {C.WHITE}{stake:.2f} {CURRENCY}{C.RESET} {martingale.status_tag()}"
+            f"{trend_info}  "
             f"{C.GREY}│{C.RESET} {stats.summary_line()}"
         )
 
-        # 4. Generate Signal
-        if self.streak >= self.target_streak:
-            return "PUT"  # Mean reversion strategy: Overextended Up -> expect Down
-        elif self.streak <= -self.target_streak:
-            return "CALL"  # Mean reversion strategy: Overextended Down -> expect Up
+        # Signal generation
+        current_time = time.time()
+        if current_time - self.last_signal_time < self.signal_cooldown:
+            return "HOLD"
+
+        # Check if streak reached target
+        if abs(self.streak) >= self.target_streak:
+            signal = "PUT" if self.streak > 0 else "CALL"
+
+            # Check trend filter
+            if self.trend_filter.should_skip_trade(signal):
+                self.pending_signal = None
+                self.pending_price = None
+                self.confirmation_counter = 0
+                return "HOLD"
+
+            # If confirmation is required, wait for confirmation
+            if self.use_confirmation:
+                if self.pending_signal is None:
+                    # First time reaching target - store pending signal
+                    self.pending_signal = signal
+                    self.pending_price = price
+                    self.confirmation_counter = 0
+                    logger.info(
+                        f"{C.YELLOW}⏳ Signal pending - waiting for confirmation...{C.RESET}"
+                    )
+                    return "HOLD"
+                else:
+                    # We have a pending signal - check if confirmed
+                    self.confirmation_counter += 1
+                    if self.confirmation_counter >= self.confirmation_delay:
+                        # Confirmed - send the signal
+                        confirmed_signal = self.pending_signal
+                        self.pending_signal = None
+                        self.pending_price = None
+                        self.confirmation_counter = 0
+                        self.last_signal_time = current_time
+                        return confirmed_signal
+                    else:
+                        return "HOLD"
+            else:
+                # No confirmation required - send immediately
+                self.last_signal_time = current_time
+                return signal
+
+        # Reset pending if streak breaks
+        if abs(self.streak) < self.target_streak and self.pending_signal is not None:
+            logger.info(
+                f"{C.GREY}⏳ Signal cancelled - streak broke before confirmation.{C.RESET}"
+            )
+            self.pending_signal = None
+            self.pending_price = None
+            self.confirmation_counter = 0
 
         return "HOLD"
 
     def _streak_meter(self, dir_color):
-        """Renders a small block meter showing streak progress toward target."""
         filled = min(abs(self.streak), self.target_streak)
         empty = self.target_streak - filled
         return f"[{dir_color}{'█' * filled}{C.RESET}{C.GREY}{'░' * empty}{C.RESET}]"
 
 
-async def execute_trade_via_proposal(client, contract_type, symbol, stake, currency):
-    """
-    Executes a trade by requesting a contract proposal first,
-    then executing the purchase using the derived proposal ID.
-    """
-    # Step 1: Request Proposal
-    proposal_payload = {
-        "proposal": 1,
-        "amount": stake,
-        "basis": "stake",
-        "contract_type": contract_type,
-        "currency": currency,
-        "duration": 5,
-        "duration_unit": "t",
-        "underlying_symbol": symbol,  # Corrected key parameter
-    }
-
-    type_color = C.RED if contract_type == "PUT" else C.GREEN
-    logger.info(
-        f"📋 Requesting {type_color}{C.BOLD}{contract_type}{C.RESET} contract proposal for {C.CYAN}{symbol}{C.RESET}..."
-    )
-    proposal_res = await client.send(proposal_payload)
-
-    if "error" in proposal_res:
-        logger.error(
-            f"❌ Proposal failed: {C.RED}{proposal_res['error'].get('message')}{C.RESET}"
-        )
-        return None
-
-    proposal_data = proposal_res.get("proposal", {})
-    proposal_id = proposal_data.get("id")
-    payout = proposal_data.get("payout")
-
-    if not proposal_id:
-        logger.error("❌ Failed to retrieve Proposal ID.")
-        return None
-
-    logger.info(
-        f"✨ Proposal received! ID: {C.CYAN}{proposal_id}{C.RESET} | Potential Payout: {C.GREEN}{payout} {currency}{C.RESET}"
-    )
-
-    # Step 2: Execute Purchase
-    buy_payload = {"buy": proposal_id, "price": stake}
-
-    logger.info(
-        f"🚀 Purchasing contract via proposal {C.CYAN}{proposal_id}{C.RESET}..."
-    )
-    buy_res = await client.send(buy_payload)
-
-    if "error" in buy_res:
-        logger.error(
-            f"❌ Purchase failed: {C.RED}{buy_res['error'].get('message')}{C.RESET}"
-        )
-        return None
-
-    buy_info = buy_res.get("buy", {})
-    return buy_info.get("contract_id")
-
-
-async def check_contract_status(client, contract_id):
-    """Monitors trade outcomes on the active on-demand connection by subscribing to it."""
-    payload = {
-        "proposal_open_contract": 1,
-        "contract_id": contract_id,
-        "subscribe": 1,
-    }
-    try:
-        logger.info(
-            f"📡 Subscribing to contract status for {C.CYAN}{contract_id}{C.RESET}..."
-        )
-        await client.subscribe(payload)
-
-        # Read the real-time stream of status updates
-        # Includes a safety timeout check to avoid locking up if the connection breaks
-        start_time = time.time()
-        while time.time() - start_time < 20:
-            response = await client.recv()
-            if "error" in response:
-                logger.warning(
-                    f"Could not check status: {C.YELLOW}{response['error'].get('message')}{C.RESET}"
-                )
-                return None
-
-            poc = response.get("proposal_open_contract", {})
-            if poc:
-                status = poc.get("status", "unknown").upper()
-                is_sold = poc.get("is_sold")
-
-                # Check if the contract has completed settlement (is_sold is True)
-                if is_sold:
-                    profit = float(poc.get("profit", 0.0))
-
-                    # Update running net P&L for the session
-                    stats.record(profit)
-
-                    if status == "WON":
-                        emoji, status_color = "🏆", C.GREEN
-                    elif status == "LOST":
-                        emoji, status_color = "❌", C.RED
-                    else:
-                        emoji, status_color = "⏳", C.YELLOW
-
-                    logger.info(
-                        f"{emoji} {C.BOLD}CONTRACT {contract_id} RESULT: "
-                        f"{status_color}{status}{C.RESET}{C.BOLD}{C.RESET} | "
-                        f"Profit: {C.pl(profit)} {CURRENCY}"
-                    )
-                    logger.info(stats.summary_line())
-                    return profit  # Settlement parsed, hand profit back to caller
-
-    except Exception as e:
-        logger.error(f"Failed tracking status for contract {contract_id}: {e}")
-
-    return None
-
-
-async def handle_trade_execution(signal, symbol, currency):
-    """
-    Connects to the API on-demand, executes the contract at the current
-    Martingale-adjusted stake, monitors the outcome, updates the Martingale
-    progression, and gracefully terminates the session.
-    """
-    # 1. Fetch a fresh authorized trading URL
-    ws_url_trades = get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
-    trade_client = DerivClient(ws_url_trades)
-
-    try:
-        # Lock stake selection so overlapping trades can't race on the same step
-        async with stake_lock:
-            stake = martingale.next_stake()
-            tag = martingale.status_tag()
-
-        logger.info(
-            f"🔌 {C.BLUE}Opening dedicated trading connection...{C.RESET} "
-            f"{C.GREY}|{C.RESET} Stake: {C.BOLD}{stake} {currency}{C.RESET} {tag}"
-        )
-        await trade_client.connect()
-
-        # 2. Place trade at the Martingale-adjusted stake
-        contract_id = await execute_trade_via_proposal(
-            trade_client, signal, symbol, stake, currency
-        )
-
-        # 3. Track resolution using active subscription channel
-        if contract_id:
-            profit = await check_contract_status(trade_client, contract_id)
-
-            # 4. Feed the outcome back into the Martingale progression
-            if profit is not None:
-                async with stake_lock:
-                    martingale.record_result(won=profit > 0)
-
-    except Exception as e:
-        logger.error(f"❌ Execution failed: {e}", exc_info=True)
-    finally:
-        logger.info(f"🔌 {C.GREY}Closing dedicated trading connection.{C.RESET}")
-        # Check if trade_client and trade_client.ws are initialized before closing to prevent AttributeError
-        if trade_client and trade_client.ws is not None:
-            await trade_client.close()
-
-
+# ==================== BANNER ====================
 def print_banner():
     mg_line = (
-        f"{C.GREY}Martingale:{C.RESET} {C.GREEN}ON{C.RESET} (x{MARTINGALE_MULTIPLIER}, uncapped)"
+        f"{C.GREY}Martingale:{C.RESET} {C.GREEN}ON{C.RESET} (x{MARTINGALE_MULTIPLIER}, max {MAX_MARTINGALE_STEPS} steps)"
         if MARTINGALE_ENABLED
         else f"{C.GREY}Martingale:{C.RESET} {C.RED}OFF{C.RESET} (flat stake)"
     )
@@ -425,23 +974,41 @@ def print_banner():
 {C.CYAN}{C.BOLD}╔══════════════════════════════════════════════════════════╗
 ║             🤖  DERIV TICK-STREAK BOT  🤖                  ║
 ╚══════════════════════════════════════════════════════════╝{C.RESET}
-{C.GREY}  Symbol:{C.RESET} {C.WHITE}{SYMBOL}{C.RESET}   {C.GREY}Base Stake:{C.RESET} {C.WHITE}{BASE_STAKE} {CURRENCY}{C.RESET}   {C.GREY}Target Streak:{C.RESET} {C.WHITE}{TARGET_STREAK}{C.RESET}   {C.GREY}Cooldown:{C.RESET} {C.WHITE}{COOLDOWN_TICKS} ticks{C.RESET}
+{C.GREY}  Symbol:{C.RESET} {C.WHITE}{SYMBOL}{C.RESET}   {C.GREY}Base Stake:{C.RESET} {C.WHITE}{BASE_STAKE} {CURRENCY}{C.RESET}   {C.GREY}Target Streak:{C.RESET} {C.WHITE}{TARGET_STREAK}{C.RESET}   {C.GREY}Duration:{C.RESET} {C.WHITE}{CONTRACT_DURATION} ticks{C.RESET}
   {mg_line}
+  {C.GREY}Trend Filter:{C.RESET} {C.GREEN}ON{C.RESET} (threshold: {TREND_THRESHOLD})  {C.GREY}Confirmation:{C.RESET} {C.GREEN}ON{C.RESET}
+  {C.GREY}Stop Loss:{C.RESET} {C.WHITE}{STOP_LOSS_PERCENT}% drawdown{C.RESET}
+  {C.GREEN}⚡ OPTIMIZED: Martingale Cap | Trend Filter | Confirmation | Dual Connections{C.RESET}
+  {C.GREY}💓 Heartbeat: {HEARTBEAT_INTERVAL}s | Max Reconnect: {MAX_RECONNECT_ATTEMPTS}{C.RESET}
 """
     print(banner)
 
 
+# ==================== MAIN ====================
 async def main():
     if not API_TOKEN:
         logger.error("Execution stopped: Missing Token in environment variables.")
         return
 
     print_banner()
+    logger.info(
+        f"{C.GREY}🚀 Starting bot at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{C.RESET}"
+    )
+    logger.info(
+        f"{C.GREY}💰 Starting Balance: {stats.initial_balance} {CURRENCY}{C.RESET}"
+    )
 
-    # Obtain permanent streaming connection URL
+    trade_manager = PersistentTradeManager()
+
+    logger.info("🔌 Pre-connecting trading connections...")
+    await trade_manager.ensure_execution_client()
+    await trade_manager.ensure_polling_client()
+    logger.info(f"{C.GREEN}✅ Trading connections ready.{C.RESET}")
+
+    worker_task = asyncio.create_task(trade_manager.trade_worker())
+    logger.info("🚀 Trade worker started.")
+
     ws_url_ticks = get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
-
-    logger.info("Initializing streaming client...")
     tick_client = DerivClient(ws_url_ticks)
 
     try:
@@ -450,20 +1017,19 @@ async def main():
             f"{C.GREEN}✅ Streaming connection successfully established.{C.RESET}"
         )
 
-        # Subscribe to continuous live ticks
         logger.info(f"Subscribing to tick stream for {C.CYAN}{SYMBOL}{C.RESET}...")
         await tick_client.ws.send(json.dumps({"ticks": SYMBOL, "subscribe": 1}))
 
         tracker = TickStreakTracker(
             target_streak=TARGET_STREAK, max_allowed_latency_ms=MAX_LATENCY_MS
         )
-        cooldown_counter = 0
+
+        last_signal_time = 0
 
         logger.info(
-            f"👁️  Now analyzing market... Awaiting {C.BOLD}{TARGET_STREAK}{C.RESET} tick streak on {C.CYAN}{SYMBOL}{C.RESET}."
+            f"{C.CYAN}👁️ Now analyzing market... Awaiting {C.BOLD}{TARGET_STREAK}{C.RESET} tick streak on {C.CYAN}{SYMBOL}{C.RESET}."
         )
 
-        # Core WebSocket streaming loop
         async for message_str in tick_client.ws:
             message = json.loads(message_str)
 
@@ -474,41 +1040,46 @@ async def main():
 
                 signal = tracker.process_new_tick(price, epoch)
 
-                # Cooldown tracking logic
-                if cooldown_counter > 0:
-                    cooldown_counter -= 1
+                current_time = time.time()
+                if current_time - last_signal_time < COOLDOWN_SECONDS:
                     continue
 
                 if signal in ["CALL", "PUT"]:
                     sig_color = C.GREEN if signal == "CALL" else C.RED
                     logger.info(
-                        f"🔥 {C.BOLD}Strike Streak Confirmed!{C.RESET} Triggering {sig_color}{C.BOLD}{signal}{C.RESET} order."
+                        f"{C.YELLOW}🔥 Strike Streak Confirmed!{C.RESET} Triggering {sig_color}{C.BOLD}{signal}{C.RESET} order at price {C.WHITE}{price:.3f}{C.RESET}"
                     )
 
-                    # Fire-and-forget: Spins up the execution engine on a separate task thread
-                    asyncio.create_task(
-                        handle_trade_execution(signal, SYMBOL, CURRENCY)
-                    )
-
-                    # Reset tracking to prevent double triggers
-                    cooldown_counter = COOLDOWN_TICKS
+                    trade_manager.queue_trade(signal, SYMBOL, CURRENCY)
+                    last_signal_time = current_time
                     tracker.streak = 0
 
             elif "error" in message:
                 logger.error(
-                    f"WebSocket incoming error: {C.RED}{message['error'].get('message')}{C.RESET}"
+                    f"{C.RED}❌ WebSocket incoming error: {message['error'].get('message')}{C.RESET}"
                 )
 
     except asyncio.CancelledError:
         logger.info("Bot execution cancelled. Shutting down gracefully...")
     except Exception as e:
-        logger.error(f"Critical failure in streaming thread: {e}", exc_info=True)
+        logger.error(f"{C.RED}❌ Critical failure: {e}{C.RESET}", exc_info=True)
     finally:
         logger.info("Tearing down active connections...")
-        logger.info(stats.summary_line())
-        # Check if tick_client and tick_client.ws are initialized before closing to prevent AttributeError
+        logger.info(stats.detailed_summary())
+
+        worker_task.cancel()
+        try:
+            await worker_task
+        except:
+            pass
+
         if tick_client and tick_client.ws is not None:
             await tick_client.close()
+
+        await trade_manager.close()
+        logger.info(
+            f"{C.GREY}🛑 Bot stopped at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{C.RESET}"
+        )
 
 
 if __name__ == "__main__":
@@ -516,4 +1087,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot manually terminated. Goodbye!")
-        logger.info(stats.summary_line())
+        logger.info(stats.detailed_summary())
