@@ -98,7 +98,7 @@ STOP_LOSS_PERCENT = 50
 
 # ==================== SESSION P&L TRACKER ====================
 class SessionStats:
-    def __init__(self, initial_balance=1000.0):
+    def __init__(self, initial_balance=15.0):
         self.initial_balance = initial_balance
         self.net_pl = 0.0
         self.wins = 0
@@ -210,7 +210,7 @@ class SessionStats:
         return "\n".join(lines)
 
 
-stats = SessionStats(initial_balance=1000.0)
+stats = SessionStats(initial_balance=15.0)
 # =======================================================
 
 
