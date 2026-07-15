@@ -1,8 +1,9 @@
-"""client.py - Fixed with recv lock and proper connection management"""
+"""client.py - Fixed with recv lock, timeout, and auto-reconnect"""
 
 import json
 import asyncio
 import websockets
+import time
 
 
 class DerivClient:
@@ -10,9 +11,10 @@ class DerivClient:
         self.ws_url = ws_url
         self.ws = None
         self.req_id = 1
-        self._recv_lock = asyncio.Lock()  # CRITICAL: Prevents concurrent recv calls
+        self._recv_lock = asyncio.Lock()
         self._is_closing = False
         self._connected = False
+        self._send_timeout = 10  # Default timeout for send operations
 
     async def connect(self):
         self.ws = await websockets.connect(self.ws_url, open_timeout=30)
@@ -28,8 +30,11 @@ class DerivClient:
         self.req_id += 1
         await self.ws.send(json.dumps(payload))
 
-    async def send(self, payload):
-        """Send a request and wait for the matching response."""
+    async def send(self, payload, timeout=None):
+        """
+        Send a request and wait for the matching response with timeout.
+        If timeout is None, uses default _send_timeout.
+        """
         if self._is_closing or self.ws is None:
             raise Exception("Connection is closed")
 
@@ -39,21 +44,44 @@ class DerivClient:
 
         await self.ws.send(json.dumps(payload))
 
-        while True:
-            message = await self.recv()
-            if message.get("req_id") == req_id:
-                return message
+        timeout = timeout or self._send_timeout
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            try:
+                # Use asyncio.wait_for with a shorter timeout
+                message = await asyncio.wait_for(self.recv(), timeout=2.0)
+                if message.get("req_id") == req_id:
+                    return message
+            except asyncio.TimeoutError:
+                # Check if connection is still alive
+                if self.ws is None or self._is_closing:
+                    raise Exception("Connection closed during receive")
+                # Continue waiting
+                continue
+            except websockets.exceptions.ConnectionClosed as e:
+                self._connected = False
+                raise Exception(f"Connection closed during receive: {e}")
+            except Exception as e:
+                self._connected = False
+                raise Exception(f"Receive error: {e}")
+
+        raise Exception(f"Timeout waiting for response to request {req_id}")
 
     async def recv(self):
         """Receive a message with lock to prevent concurrent recv calls."""
         if self._is_closing or self.ws is None:
             raise Exception("Connection is closed")
 
-        # CRITICAL FIX: Only one coroutine can call recv at a time
         async with self._recv_lock:
             try:
-                return json.loads(await self.ws.recv())
+                return json.loads(await asyncio.wait_for(self.ws.recv(), timeout=5.0))
+            except asyncio.TimeoutError:
+                raise Exception("recv timeout")
             except websockets.exceptions.ConnectionClosed:
+                self._connected = False
+                raise
+            except Exception as e:
                 self._connected = False
                 raise
 
@@ -64,21 +92,26 @@ class DerivClient:
 
         async with self._recv_lock:
             try:
-                return json.loads(await self.ws.recv())
+                return json.loads(await asyncio.wait_for(self.ws.recv(), timeout=5.0))
+            except asyncio.TimeoutError:
+                raise Exception("recv timeout")
             except websockets.exceptions.ConnectionClosed:
+                self._connected = False
+                raise
+            except Exception as e:
                 self._connected = False
                 raise
 
     async def ping(self):
         """Send a ping to check connection health."""
         if self._is_closing or self.ws is None:
-            raise Exception("Connection is closed")
+            return False
         try:
-            await self.ws.ping()
+            await asyncio.wait_for(self.ws.ping(), timeout=2.0)
             return True
         except Exception:
             self._connected = False
-            raise
+            return False
 
     async def close(self):
         self._is_closing = True
