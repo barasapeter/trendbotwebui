@@ -968,7 +968,7 @@ runBtn.onclick = () => {
       mode: selectedMode,
       stake: 5,
       risk_tolerance: riskValue,
-      invert: toggle.checked,
+      invert: invertToggle.checked,
     })
   );
 };
