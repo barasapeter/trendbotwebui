@@ -194,14 +194,14 @@ class SessionStats:
             f"{C.BOLD}📊 SESSION DETAILED SUMMARY{C.RESET}",
             f"{C.GREY}Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}{C.RESET}",
             f"{C.GREY}Duration: {datetime.now() - self.start_time}{C.RESET}",
-            f"",
+            "",
             f"{C.BOLD}Performance:{C.RESET}",
             f"  Trades: {self.trades}  Wins: {C.GREEN}{self.wins}{C.RESET}  Losses: {C.RED}{self.losses}{C.RESET}  Win Rate: {C.CYAN}{(self.wins/self.trades*100):.1f}%{C.RESET}",
             f"  Net P/L: {C.pl(self.net_pl)} {CURRENCY}",
             f"  Current Balance: {C.WHITE}{self.get_current_balance():.2f} {CURRENCY}{C.RESET}",
             f"  Max Drawdown: {C.RED}{self.max_drawdown:.1f}%{C.RESET}",
             f"  Max Consecutive Losses: {C.RED}{self.max_consecutive_losses}{C.RESET}",
-            f"",
+            "",
             f"{C.BOLD}{C.UNDERLINE}Trade History:{C.RESET}",
         ]
 
@@ -781,21 +781,21 @@ class PersistentTradeManager:
             self.heartbeat_task.cancel()
             try:
                 await self.heartbeat_task
-            except:
+            except Exception:
                 pass
 
         if self.execution_client:
             try:
                 await self.execution_client.close()
                 logger.info(f"{C.GREY}🔌 Execution connection closed.{C.RESET}")
-            except:
+            except Exception:
                 pass
 
         if self.polling_client:
             try:
                 await self.polling_client.close()
                 logger.info(f"{C.GREY}🔌 Polling connection closed.{C.RESET}")
-            except:
+            except Exception:
                 pass
 
 
@@ -1070,7 +1070,7 @@ async def main():
         worker_task.cancel()
         try:
             await worker_task
-        except:
+        except Exception:
             pass
 
         if tick_client and tick_client.ws is not None:

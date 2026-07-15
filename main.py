@@ -11,7 +11,7 @@ from client import DerivClient
 from auth import get_ws_url
 import math
 import utils
-
+import logging
 from pathlib import Path
 
 users_dir = Path("users")
@@ -277,7 +277,7 @@ async def auth_post(request: Request):
                 content={"detail": "Account created successfully"},
             )
 
-        except Exception as e:
+        except Exception:
             raise HTTPException(
                 status_code=401,
                 detail="Invalid token or App ID.",
@@ -302,7 +302,7 @@ async def get_account_balance(client):
     return float(res.get("balance", {}).get("balance", 0.0))
 
 
-import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -435,7 +435,7 @@ async def wait_for_contract_result(client, contract_id, stop_event):
                             "subscribe": 1,
                         }
                     )
-                except Exception:
+                except Exception as e:
                     pass
             continue
 
@@ -1225,7 +1225,7 @@ async def receiver(ws: WebSocket, session: dict):
                         # Try to reconnect
                         try:
                             await client_for_balance.close()
-                        except Exception:
+                        except Exception as e:
                             pass
                         client_for_balance = DerivClient(
                             ws_url=get_ws_url(

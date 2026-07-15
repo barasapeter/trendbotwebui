@@ -90,7 +90,7 @@ class DerivClient:
         try:
             await asyncio.wait_for(self.ws.ping(), timeout=2.0)
             return True
-        except:
+        except Exception:
             self._connected = False
             raise
 
@@ -99,7 +99,7 @@ class DerivClient:
         if self.ws is not None:
             try:
                 await self.ws.close()
-            except:
+            except Exception:
                 pass
             self.ws = None
             self._connected = False

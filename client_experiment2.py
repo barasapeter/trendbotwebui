@@ -23,7 +23,7 @@ class DerivClient:
     async def subscribe(self, payload):
         if self._is_closing or self.ws is None:
             raise Exception("Connection is closed")
-        
+
         payload["req_id"] = self.req_id
         self.req_id += 1
         await self.ws.send(json.dumps(payload))
@@ -32,7 +32,7 @@ class DerivClient:
         """Send a request and wait for the matching response."""
         if self._is_closing or self.ws is None:
             raise Exception("Connection is closed")
-        
+
         payload["req_id"] = self.req_id
         req_id = self.req_id
         self.req_id += 1
@@ -48,7 +48,7 @@ class DerivClient:
         """Receive a message with lock to prevent concurrent recv calls."""
         if self._is_closing or self.ws is None:
             raise Exception("Connection is closed")
-        
+
         # CRITICAL FIX: Only one coroutine can call recv at a time
         async with self._recv_lock:
             try:
@@ -61,7 +61,7 @@ class DerivClient:
         """For streaming responses where req_id matching is not needed."""
         if self._is_closing or self.ws is None:
             raise Exception("Connection is closed")
-        
+
         async with self._recv_lock:
             try:
                 return json.loads(await self.ws.recv())
@@ -76,7 +76,7 @@ class DerivClient:
         try:
             await self.ws.ping()
             return True
-        except:
+        except Exception:
             self._connected = False
             raise
 
@@ -85,7 +85,7 @@ class DerivClient:
         if self.ws is not None:
             try:
                 await self.ws.close()
-            except:
+            except Exception:
                 pass
             self.ws = None
             self._connected = False
