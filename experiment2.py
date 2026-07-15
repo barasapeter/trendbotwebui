@@ -1,4 +1,4 @@
-"""experiment2.py - Zero Execution Error Edition with Fixed WebSocket"""
+"""experiment2.py - Fixed Martingale Pre-Fetch with Dual Connections"""
 
 import asyncio
 import os
@@ -184,23 +184,42 @@ class MartingaleManager:
         self.loss_streak = 0
         self._lock = asyncio.Lock()
         self._pending_stake = None
+        self._is_prefetched = False  # Track if we've pre-fetched
+
+    async def get_current_stake(self):
+        """Get the current stake without consuming pending."""
+        async with self._lock:
+            return self.current_stake
 
     async def next_stake_async(self):
+        """Get the next stake - use pending if available, otherwise current."""
         async with self._lock:
             if self._pending_stake is not None:
                 stake = self._pending_stake
                 self._pending_stake = None
+                self._is_prefetched = False
                 return round(stake, 2)
-            return round(self.current_stake, 2) if self.current_stake < 5000 else 5000
+            return round(self.current_stake, 2)
 
     async def pre_fetch_next_stake(self):
+        """
+        CRITICAL FIX: Pre-fetch the next stake by ACTUALLY updating current_stake.
+        This simulates the loss happening NOW so future pre-fetches use the right value.
+        """
         async with self._lock:
             if not self.enabled:
                 return
+
+            # Calculate next stake (multiply current by multiplier)
             next_stake = round(self.current_stake * self.multiplier, 2)
+
+            # CRITICAL: Update current_stake immediately so future pre-fetches multiply correctly
+            self.current_stake = next_stake
             self._pending_stake = next_stake
+            self._is_prefetched = True
             self.step += 1
             self.loss_streak += 1
+
             logger.info(
                 f"{C.ORANGE}📈 Martingale pre-fetched step {self.step}{C.RESET} — "
                 f"next stake ready: {C.ORANGE}{C.BOLD}{next_stake} {CURRENCY}{C.RESET} "
@@ -208,12 +227,13 @@ class MartingaleManager:
             )
 
     async def record_result_async(self, won):
+        """Record result and finalize the martingale state."""
         if not self.enabled:
             return
 
         async with self._lock:
             if won:
-                if self.step > 0 or self._pending_stake is not None:
+                if self.step > 0 or self._is_prefetched:
                     logger.info(
                         f"{C.GREEN}🔁 Martingale reset{C.RESET} — win recovered the drawdown, "
                         f"back to base stake ({C.BOLD}{self.base_stake} {CURRENCY}{C.RESET})."
@@ -222,16 +242,19 @@ class MartingaleManager:
                 self.step = 0
                 self.loss_streak = 0
                 self._pending_stake = None
+                self._is_prefetched = False
                 return
 
-            # Loss: update state (stake already pre-fetched)
-            self.current_stake = round(self.current_stake * self.multiplier, 2)
+            # Loss: current_stake was already updated during pre_fetch
+            # Just clear pending and log
             self._pending_stake = None
+            self._is_prefetched = False
+            # current_stake stays as-is (already multiplied)
 
     def status_tag(self):
         if not self.enabled:
             return f"{C.GREY}[Flat Stake]{C.RESET}"
-        if self._pending_stake is not None:
+        if self._is_prefetched or self._pending_stake is not None:
             return f"{C.ORANGE}[Pre-fetched x{self.step}]{C.RESET}"
         if self.step == 0:
             return f"{C.GREEN}[Base]{C.RESET}"
@@ -249,7 +272,6 @@ martingale = MartingaleManager(
 # ==================== PERSISTENT TRADE MANAGER ====================
 class PersistentTradeManager:
     def __init__(self):
-        # Use SEPARATE connections for execution and polling
         self.execution_client = None
         self.polling_client = None
         self.lock = asyncio.Lock()
@@ -260,10 +282,9 @@ class PersistentTradeManager:
         self.reconnect_attempts = 0
         self._is_closing = False
         self._trade_lock = asyncio.Lock()
-        self._pending_contracts = {}  # Track contracts being resolved
+        self._pending_contracts = {}
 
     async def _create_client(self, label="client"):
-        """Create a new client connection."""
         try:
             ws_url = get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
             client = DerivClient(ws_url)
@@ -274,7 +295,6 @@ class PersistentTradeManager:
             return None
 
     async def ensure_execution_client(self):
-        """Ensure the execution connection is active."""
         if self._is_closing:
             return None
 
@@ -292,7 +312,6 @@ class PersistentTradeManager:
         return self.execution_client
 
     async def ensure_polling_client(self):
-        """Ensure the polling connection is active."""
         if self._is_closing:
             return None
 
@@ -310,17 +329,13 @@ class PersistentTradeManager:
         return self.polling_client
 
     async def heartbeat(self):
-        """Periodically check connections."""
         while not self._is_closing:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
             if self._is_closing:
                 break
             try:
-                # Check execution client
                 if self.execution_client and self.execution_client.ws:
                     await self.execution_client.ping()
-
-                # Check polling client
                 if self.polling_client and self.polling_client.ws:
                     await self.polling_client.ping()
             except asyncio.CancelledError:
@@ -329,10 +344,8 @@ class PersistentTradeManager:
                 logger.warning(
                     f"{C.YELLOW}⚠️ Heartbeat warning: {str(e)[:50]}{C.RESET}"
                 )
-                # Reconnect will happen on next use
 
     async def execute_trade_instant(self, signal, stake, symbol, currency):
-        """Execute a trade using the dedicated execution connection."""
         start_time = time.time()
 
         client = await self.ensure_execution_client()
@@ -402,10 +415,6 @@ class PersistentTradeManager:
             return None, None
 
     async def poll_contract_status(self, contract_id):
-        """
-        Poll for contract status using the DEDICATED polling connection.
-        This prevents conflicts with the execution connection.
-        """
         client = await self.ensure_polling_client()
         if client is None:
             return None, None
@@ -462,11 +471,9 @@ class PersistentTradeManager:
         return None, None
 
     async def process_trade(self, signal, symbol, currency):
-        """Process a single trade with INSTANT execution."""
         if self._is_closing:
             return
 
-        # Check cooldown
         current_time = time.time()
         if current_time - self.last_trade_time < self.cooldown_seconds:
             remaining = self.cooldown_seconds - (current_time - self.last_trade_time)
@@ -475,7 +482,7 @@ class PersistentTradeManager:
             )
             return
 
-        # Get stake IMMEDIATELY
+        # Get stake - this will use pending if available, otherwise current
         stake = await martingale.next_stake_async()
 
         async with self._trade_lock:
@@ -495,23 +502,22 @@ class PersistentTradeManager:
                 logger.error(f"{C.RED}❌ Failed to execute {signal} trade.{C.RESET}")
                 return
 
-            # Track pending contract
             stats.pending_trades[contract_id] = {
                 "signal": signal,
                 "stake": stake,
                 "entry": entry_price,
             }
 
-            # Pre-fetch next Martingale stake immediately (in case this one loses)
+            # CRITICAL FIX: Pre-fetch the NEXT stake immediately
+            # This updates current_stake so future pre-fetches multiply correctly
             await martingale.pre_fetch_next_stake()
 
-            # Resolve in background using the polling connection
+            # Resolve in background
             asyncio.create_task(
                 self._resolve_trade(contract_id, signal, stake, entry_price)
             )
 
     async def _resolve_trade(self, contract_id, signal, stake, entry_price):
-        """Resolve a trade in the background using the polling connection."""
         profit, exit_price = await self.poll_contract_status(contract_id)
 
         stats.pending_trades.pop(contract_id, None)
@@ -520,7 +526,7 @@ class PersistentTradeManager:
             stats.record(profit, contract_id, signal, stake, entry_price, exit_price)
             logger.info(stats.summary_line())
 
-            # Update Martingale AFTER resolution
+            # Record result - this will reset or confirm the martingale state
             await martingale.record_result_async(won=profit > 0)
         else:
             logger.error(
@@ -528,7 +534,6 @@ class PersistentTradeManager:
             )
 
     async def trade_worker(self):
-        """Background worker that processes trades from the queue."""
         self.heartbeat_task = asyncio.create_task(self.heartbeat())
         logger.info(
             f"{C.GREEN}💓 Heartbeat started (interval: {HEARTBEAT_INTERVAL}s){C.RESET}"
@@ -640,6 +645,7 @@ class TickStreakTracker:
             )
             tick_freq = f"{avg_interval*1000:.0f}ms"
 
+        # Get current stake for display
         stake = martingale.current_stake
         if martingale._pending_stake is not None:
             stake = martingale._pending_stake
@@ -685,7 +691,7 @@ def print_banner():
 ╚══════════════════════════════════════════════════════════╝{C.RESET}
 {C.GREY}  Symbol:{C.RESET} {C.WHITE}{SYMBOL}{C.RESET}   {C.GREY}Base Stake:{C.RESET} {C.WHITE}{BASE_STAKE} {CURRENCY}{C.RESET}   {C.GREY}Target Streak:{C.RESET} {C.WHITE}{TARGET_STREAK}{C.RESET}   {C.GREY}Cooldown:{C.RESET} {C.WHITE}{COOLDOWN_SECONDS}s{C.RESET}
   {mg_line}
-  {C.GREEN}⚡ DUAL-CONNECTION: Dedicated Execution + Dedicated Polling{C.RESET}
+  {C.GREEN}⚡ FIXED: Martingale Pre-Fetch | Dual Connections | Instant Execution{C.RESET}
   {C.GREY}💓 Heartbeat: {HEARTBEAT_INTERVAL}s | Max Reconnect: {MAX_RECONNECT_ATTEMPTS}{C.RESET}
 """
     print(banner)
