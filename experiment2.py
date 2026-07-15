@@ -210,7 +210,7 @@ class SessionStats:
         return "\n".join(lines)
 
 
-stats = SessionStats(initial_balance=15.0)
+stats = SessionStats(initial_balance=10.0)
 # =======================================================
 
 
