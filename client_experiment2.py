@@ -122,6 +122,7 @@ class DerivClient:
                 pass
             self.ws = None
             self._connected = False
+        print("Disconnected")
 
     @property
     def is_connected(self):
