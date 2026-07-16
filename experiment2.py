@@ -76,7 +76,7 @@ APP_ID = os.getenv("APP_ID") or "1089"
 
 # ==================== CONFIGURATION ====================
 SYMBOL = "R_100"
-BASE_STAKE = 3  # RECOMMENDED: Should be 1% of your balance
+BASE_STAKE = None  # RECOMMENDED: Should be 1% of your balance, I want when the balance is fetched this base stake is changed to 1% of balance
 CURRENCY = "USD"
 TARGET_STREAK = 3
 CONTRACT_DURATION = 5
@@ -912,13 +912,12 @@ async def get_account_balance(client):
 
 # ==================== MAIN ====================
 async def main():
-    global stats
+    global stats, BASE_STAKE
 
     if not API_TOKEN:
         logger.error("Execution stopped: Missing Token in environment variables.")
         return
 
-    print_banner()
     logger.info(
         f"{C.GREY}🚀 Starting bot at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{C.RESET}"
     )
@@ -938,6 +937,17 @@ async def main():
     if initial_balance <= 0:
         logger.error(f"{C.RED}❌ Invalid or zero balance returned — aborting.{C.RESET}")
         return
+
+    # ---- NEW: set stake to 1% of balance ----
+    BASE_STAKE = round(initial_balance * 0.01, 2)  # Base stake set to 1% of the balance
+    martingale.base_stake = BASE_STAKE
+    martingale.current_stake = BASE_STAKE
+    logger.info(
+        f"{C.CYAN}📐 Base stake set to 1% of balance: {C.BOLD}{BASE_STAKE} {CURRENCY}{C.RESET}"
+    )
+    # -------------------------------------------
+
+    print_banner()  # now prints the correct, balance-derived stake
 
     stats = SessionStats(initial_balance=initial_balance)
     logger.info(
