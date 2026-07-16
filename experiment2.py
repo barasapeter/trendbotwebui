@@ -78,14 +78,14 @@ APP_ID = os.getenv("APP_ID") or "1089"
 SYMBOL = "R_100"
 BASE_STAKE = None  # RECOMMENDED: Should be 1% of your balance, I want when the balance is fetched this base stake is changed to 1% of balance
 CURRENCY = "USD"
-TARGET_STREAK = 3
+TARGET_STREAK = 4
 CONTRACT_DURATION = 5
 COOLDOWN_SECONDS = 6
 MAX_LATENCY_MS = 1000
 
 MARTINGALE_ENABLED = True
-MARTINGALE_MULTIPLIER = 2.0
-MAX_MARTINGALE_STEPS = 6
+MARTINGALE_MULTIPLIER = 2
+MAX_MARTINGALE_STEPS = 7
 
 HEARTBEAT_INTERVAL = 5
 MAX_RECONNECT_ATTEMPTS = 5
@@ -939,7 +939,14 @@ async def main():
         return
 
     # ---- NEW: set stake to 1% of balance ----
-    BASE_STAKE = round(initial_balance * 0.01, 2)  # Base stake set to 1% of the balance
+    BASE_STAKE = round(
+        initial_balance * 0.01, 2
+    )  # Base stake set to 1% of the balance, and fall back to absolute minimum of 0.35 USD if less
+    if BASE_STAKE < 0.35:
+        minimum_clamp_warning = f"Calculated base stake from balance of {initial_balance} USD is {BASE_STAKE} USD. Resetting to absolute minimum... Please consider recharging your balance."
+        logger.warning(minimum_clamp_warning)
+        BASE_STAKE = 0.35
+
     martingale.base_stake = BASE_STAKE
     martingale.current_stake = BASE_STAKE
     logger.info(
