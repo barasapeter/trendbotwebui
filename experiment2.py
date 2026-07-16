@@ -327,6 +327,16 @@ martingale = MartingaleManager(
 # =======================================================
 
 
+async def get_account_balance(client):
+    res = await client.send({"balance": 1})
+    if "error" in res:
+        logger.error(
+            f"{C.RED}❌ Balance Fetch Error: {res['error']['message']}{C.RESET}"
+        )
+        return 0.0
+    return float(res.get("balance", {}).get("balance", 0.0))
+
+
 # ==================== PERSISTENT TRADE MANAGER ====================
 class PersistentTradeManager:
     def __init__(self):
@@ -666,6 +676,12 @@ class PersistentTradeManager:
 
         # Get stake
         stake = await martingale.next_stake_async()
+        balance = await get_account_balance(self.execution_client)
+        if stake > balance:
+            logger.warning(
+                f"{C.YELLOW}⚠️ ACCOUNT BLOWUP RISK WARNING: Stake {stake} USD > balance {balance} USD. Clamping stake to {balance} USD..."
+            )
+            stake = balance
         if stake is None:
             logger.warning(
                 f"{C.RED}❌ No stake available - martingale stopped.{C.RESET}"
@@ -898,16 +914,6 @@ def print_banner():
   {C.GREY}💓 Heartbeat: {HEARTBEAT_INTERVAL}s | Max Reconnect: {MAX_RECONNECT_ATTEMPTS}{C.RESET}
 """
     print(banner)
-
-
-async def get_account_balance(client):
-    res = await client.send({"balance": 1})
-    if "error" in res:
-        logger.error(
-            f"{C.RED}❌ Balance Fetch Error: {res['error']['message']}{C.RESET}"
-        )
-        return 0.0
-    return float(res.get("balance", {}).get("balance", 0.0))
 
 
 # ==================== MAIN ====================
