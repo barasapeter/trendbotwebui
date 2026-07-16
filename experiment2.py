@@ -77,6 +77,7 @@ APP_ID = os.getenv("APP_ID") or "1089"
 # ==================== CONFIGURATION ====================
 SYMBOL = "R_100"
 BASE_STAKE = None  # RECOMMENDED: Should be 1% of your balance, I want when the balance is fetched this base stake is changed to 1% of balance
+INITIAL_STAKE_PERCENTAGE = 1
 CURRENCY = "USD"
 TARGET_STREAK = 4
 CONTRACT_DURATION = 5
@@ -92,7 +93,7 @@ MAX_RECONNECT_ATTEMPTS = 5
 RECONNECT_DELAY = 2
 
 # Stop Loss
-STOP_LOSS_PERCENT = 50
+STOP_LOSS_PERCENT = 100
 # =======================================================
 
 
@@ -676,12 +677,14 @@ class PersistentTradeManager:
 
         # Get stake
         stake = await martingale.next_stake_async()
-        balance = await get_account_balance(self.execution_client)
-        if stake > balance:
-            logger.warning(
-                f"{C.YELLOW}⚠️ ACCOUNT BLOWUP RISK WARNING: Stake {stake} USD > balance {balance} USD. Clamping stake to {balance} USD..."
-            )
-            stake = balance
+
+        # balance = await get_account_balance(self.execution_client)
+        # if stake > balance:
+        #     logger.warning(
+        #         f"{C.YELLOW}⚠️ ACCOUNT BLOWUP RISK WARNING: Stake {stake} USD > balance {balance} USD. Clamping stake to {balance} USD..."
+        #     )
+        #     stake = balance
+
         if stake is None:
             logger.warning(
                 f"{C.RED}❌ No stake available - martingale stopped.{C.RESET}"
@@ -943,8 +946,6 @@ async def main():
     if initial_balance <= 0:
         logger.error(f"{C.RED}❌ Invalid or zero balance returned — aborting.{C.RESET}")
         return
-
-    INITIAL_STAKE_PERCENTAGE = 5
 
     # ---- NEW: set stake to 1% of balance ----
     BASE_STAKE = round(
