@@ -76,16 +76,16 @@ APP_ID = os.getenv("APP_ID") or "1089"
 
 # ==================== CONFIGURATION ====================
 SYMBOL = "R_100"
-BASE_STAKE = 0.35
+BASE_STAKE = 1300
 CURRENCY = "USD"
-TARGET_STREAK = 4
+TARGET_STREAK = 3
 CONTRACT_DURATION = 5
 COOLDOWN_SECONDS = 6
 MAX_LATENCY_MS = 1000
 
 MARTINGALE_ENABLED = True
 MARTINGALE_MULTIPLIER = 2.0
-MAX_MARTINGALE_STEPS = 6
+MAX_MARTINGALE_STEPS = 3
 
 HEARTBEAT_INTERVAL = 5
 MAX_RECONNECT_ATTEMPTS = 5
@@ -210,7 +210,8 @@ class SessionStats:
         return "\n".join(lines)
 
 
-stats = SessionStats(initial_balance=10.0)
+stats = None
+
 # =======================================================
 
 
@@ -246,7 +247,7 @@ class MartingaleManager:
                 self._pending_stake = None
                 self._is_prefetched = False
                 return round(stake, 2)
-            return round(self.current_stake, 2)
+            return round(self.current_stake, 2) if self.current_stake <= 5000 else 5000
 
     async def pre_fetch_next_stake(self):
         async with self._lock:
@@ -255,12 +256,15 @@ class MartingaleManager:
 
             if self.step >= self.max_steps:
                 self._stopped = True
-                logger.warning(
-                    f"{C.RED}🛑 Martingale stopped after {self.max_steps} steps!{C.RESET}"
-                )
+                stop_warning = f"{C.RED}🛑 Martingale stopped after {self.max_steps} steps!{C.RESET}"
+                logger.warning(stop_warning)
                 return
 
             next_stake = round(self.current_stake * self.multiplier, 2)
+            if next_stake > 5000:
+                cap_warning = f"{C.YELLOW}Martingale stake of {next_stake} exceeds maximum. Capping new stake at 5000 {CURRENCY}{C.RESET}"
+                logger.warning(cap_warning)
+                next_stake = 5000
             self.current_stake = next_stake
             self._pending_stake = next_stake
             self._is_prefetched = True
@@ -884,9 +888,9 @@ def print_banner():
         else f"{C.GREY}Martingale:{C.RESET} {C.RED}OFF{C.RESET} (flat stake)"
     )
     banner = f"""
-{C.CYAN}{C.BOLD}╔══════════════════════════════════════════════════════════╗
-║             🤖  DERIV TICK-STREAK BOT  🤖                  ║
-╚══════════════════════════════════════════════════════════╝{C.RESET}
+{C.CYAN}{C.BOLD}══════════════════════════════════════════════════════════
+           TICK-STREAK BOT                   
+══════════════════════════════════════════════════════════{C.RESET}
 {C.GREY}  Symbol:{C.RESET} {C.WHITE}{SYMBOL}{C.RESET}   {C.GREY}Base Stake:{C.RESET} {C.WHITE}{BASE_STAKE} {CURRENCY}{C.RESET}   {C.GREY}Target Streak:{C.RESET} {C.WHITE}{TARGET_STREAK}{C.RESET}   {C.GREY}Duration:{C.RESET} {C.WHITE}{CONTRACT_DURATION} ticks{C.RESET}
   {mg_line}
   {C.GREY}Stop Loss:{C.RESET} {C.WHITE}{STOP_LOSS_PERCENT}% drawdown{C.RESET}
@@ -896,8 +900,20 @@ def print_banner():
     print(banner)
 
 
+async def get_account_balance(client):
+    res = await client.send({"balance": 1})
+    if "error" in res:
+        logger.error(
+            f"{C.RED}❌ Balance Fetch Error: {res['error']['message']}{C.RESET}"
+        )
+        return 0.0
+    return float(res.get("balance", {}).get("balance", 0.0))
+
+
 # ==================== MAIN ====================
 async def main():
+    global stats
+
     if not API_TOKEN:
         logger.error("Execution stopped: Missing Token in environment variables.")
         return
@@ -906,8 +922,26 @@ async def main():
     logger.info(
         f"{C.GREY}🚀 Starting bot at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{C.RESET}"
     )
+
+    logger.info(f"{C.CYAN}💰 Fetching live account balance...{C.RESET}")
+    try:
+        balance_client = DerivClient(
+            ws_url=get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
+        )
+        await balance_client.connect()
+        initial_balance = await get_account_balance(balance_client)
+        await balance_client.close()
+    except Exception as e:
+        logger.error(f"{C.RED}❌ Failed to fetch balance: {e}{C.RESET}")
+        return
+
+    if initial_balance <= 0:
+        logger.error(f"{C.RED}❌ Invalid or zero balance returned — aborting.{C.RESET}")
+        return
+
+    stats = SessionStats(initial_balance=initial_balance)
     logger.info(
-        f"{C.GREY}💰 Starting Balance: {stats.initial_balance} {CURRENCY}{C.RESET}"
+        f"{C.GREY}💰 Starting Balance: {stats.initial_balance:.2f} {CURRENCY}{C.RESET}"
     )
 
     trade_manager = PersistentTradeManager()

@@ -1,4 +1,4 @@
-"""experiment2.py - Tiered Risk Management with Fixed Numeric TP/SL Hedging - FULLY FIXED"""
+"""experiment2.py - Tiered Risk Management with REAL-TIME TP/SL Hedging - FULLY FIXED"""
 
 import asyncio
 import os
@@ -79,7 +79,7 @@ SYMBOL = "R_100"
 CURRENCY = "USD"
 TARGET_STREAK = 4
 CONTRACT_DURATION = 5
-COOLDOWN_SECONDS = 6
+COOLDOWN_SECONDS = 3  # REDUCED: 3 seconds between trades
 MAX_LATENCY_MS = 1000
 
 HEARTBEAT_INTERVAL = 5
@@ -87,9 +87,9 @@ MAX_RECONNECT_ATTEMPTS = 5
 RECONNECT_DELAY = 2
 
 # ==================== TP/SL CONFIGURATION - FIXED ====================
-TP_SL_MONITOR_INTERVAL = 0.1  # FIXED: 100ms for faster detection
-TP_SL_SLIPPAGE_TOLERANCE = 0.02  # FIXED: 0.02 price points tolerance
+TP_SL_SLIPPAGE_TOLERANCE = 0.05  # INCREASED: 0.05 price points tolerance
 HEDGE_STAKE_MULTIPLIER = 1.0
+MAX_ACTIVE_CONTRACTS = 1  # Only 1 active trade at a time
 
 # ==================== TIERED RISK CONFIGURATION ====================
 ABSOLUTE_MIN_BALANCE = 5.00
@@ -132,7 +132,7 @@ MAX_CONSECUTIVE_LOSSES = 3
 
 # ==================== SESSION P&L TRACKER ====================
 class SessionStats:
-    def __init__(self, initial_balance=20.0):
+    def __init__(self, initial_balance=100.0):
         self.initial_balance = initial_balance
         self.net_pl = 0.0
         self.wins = 0
@@ -331,7 +331,7 @@ class SessionStats:
         return "\n".join(lines)
 
 
-stats = SessionStats(initial_balance=1000.0)
+stats = SessionStats(initial_balance=100.0)
 # =======================================================
 
 
@@ -345,6 +345,8 @@ class TieredStakeManager:
         self.current_sl = TIER_1_SL
         self._trading_blocked = False
         self._block_reason = None
+        self._tier_locked = False
+        self._locked_tier = None
 
     def _get_tier_config(self, balance):
         if balance < ABSOLUTE_MIN_BALANCE:
@@ -402,8 +404,13 @@ class TieredStakeManager:
         async with self._lock:
             return self.current_tp, self.current_sl
 
-    async def update_stake(self, balance):
+    async def update_stake(self, balance, lock_tier=False):
         async with self._lock:
+            # If tier is locked, use the locked tier config
+            if self._tier_locked and self._locked_tier is not None:
+                # Use the locked tier values
+                return self.current_stake, self.current_tp, self.current_sl, None
+
             new_stake, tier, tp, sl, block_reason = self._get_tier_config(balance)
 
             if tier == -1:
@@ -422,6 +429,11 @@ class TieredStakeManager:
             self.current_sl = sl
             self._trading_blocked = False
             self._block_reason = None
+
+            # If lock_tier is True, lock the current tier
+            if lock_tier:
+                self._tier_locked = True
+                self._locked_tier = tier
 
             if tier_changed:
                 tier_names = {
@@ -442,6 +454,11 @@ class TieredStakeManager:
                 )
             return self.current_stake, self.current_tp, self.current_sl, None
 
+    async def unlock_tier(self):
+        async with self._lock:
+            self._tier_locked = False
+            self._locked_tier = None
+
     async def reset_to_base(self):
         async with self._lock:
             self.current_stake = TIER_1_STAKE
@@ -450,6 +467,8 @@ class TieredStakeManager:
             self.current_sl = TIER_1_SL
             self._trading_blocked = False
             self._block_reason = None
+            self._tier_locked = False
+            self._locked_tier = None
             logger.info(
                 f"{C.YELLOW}🔄 Stake reset to base: {TIER_1_STAKE} {CURRENCY}{C.RESET}"
             )
@@ -482,14 +501,15 @@ class TieredStakeManager:
         if self.current_stake == 0.0:
             return f"{C.RED}[🔴 TRADING STOPPED]{C.RESET}"
         risk_emoji = "🟢" if self.current_tier >= 1 else "🟡"
-        return f"{risk_emoji}[{tier_name}: {self.current_stake:.2f} | TP: {self.current_tp:.2f} | SL: {self.current_sl:.2f}]{C.RESET}"
+        lock_icon = "🔒" if self._tier_locked else ""
+        return f"{risk_emoji}{lock_icon}[{tier_name}: {self.current_stake:.2f} | TP: {self.current_tp:.2f} | SL: {self.current_sl:.2f}]{C.RESET}"
 
 
 tiered_stake = TieredStakeManager()
 # =======================================================
 
 
-# ==================== PERSISTENT TRADE MANAGER - FIXED ====================
+# ==================== PERSISTENT TRADE MANAGER - FULLY FIXED ====================
 class PersistentTradeManager:
     def __init__(self):
         self.execution_client = None
@@ -506,8 +526,10 @@ class PersistentTradeManager:
         self.daily_reset_time = datetime.now()
         self.active_contracts = {}
         self._bot_running = True
-        self._price_history = {}  # Store recent prices for each contract
-        self._tp_sl_triggered = set()  # Track triggered contracts
+        self._tp_sl_triggered = set()
+        self._active_trade_count = 0
+        self._tick_queue = asyncio.Queue()
+        self._monitor_tasks = set()
 
     async def _create_client(self, label="client"):
         try:
@@ -606,19 +628,6 @@ class PersistentTradeManager:
                     await self.ensure_polling_client()
                     consecutive_failures = 0
 
-    async def get_current_price(self):
-        try:
-            client = await self.ensure_polling_client()
-            if not client:
-                return None
-            response = await client.send({"ticks": SYMBOL, "subscribe": 0})
-            if "error" in response:
-                return None
-            tick = response.get("tick", {})
-            return float(tick.get("quote", 0))
-        except Exception as e:
-            return None
-
     async def execute_hedge_trade(self, signal, stake, symbol, currency):
         client = await self.ensure_execution_client()
         if client is None:
@@ -671,12 +680,14 @@ class PersistentTradeManager:
             logger.error(f"{C.RED}❌ Hedge execution error: {e}{C.RESET}")
             return None, None
 
-    async def monitor_tp_sl(
+    async def monitor_tp_sl_tick(
         self, contract_id, signal, entry_price, stake, tp_amount, sl_amount
     ):
-        """FIXED: Monitor price for TP/SL triggers with slippage tolerance and immediate execution."""
-
-        # Convert fixed dollar amounts to price levels
+        """
+        FIXED: Monitor price ticks in real-time using the tick stream.
+        This is called once per trade and runs until contract resolves.
+        """
+        # Calculate TP/SL price levels
         if signal == "CALL":
             take_profit_price = entry_price + tp_amount
             stop_loss_price = entry_price - sl_amount
@@ -685,81 +696,111 @@ class PersistentTradeManager:
             stop_loss_price = entry_price + sl_amount
 
         # Add tolerance
-        tp_hit_price = take_profit_price - TP_SL_SLIPPAGE_TOLERANCE
-        sl_hit_price = stop_loss_price + TP_SL_SLIPPAGE_TOLERANCE
+        tp_trigger = take_profit_price - TP_SL_SLIPPAGE_TOLERANCE
+        sl_trigger = stop_loss_price + TP_SL_SLIPPAGE_TOLERANCE
 
         logger.info(
-            f"{C.CYAN}🎯 TP/SL MONITORING{C.RESET} | Contract: {contract_id} "
+            f"{C.CYAN}🎯 TP/SL MONITORING (REAL-TIME){C.RESET} | Contract: {contract_id} "
             f"| TP: {C.GREEN}{take_profit_price:.3f}{C.RESET} (${tp_amount:.2f}) "
             f"| SL: {C.RED}{stop_loss_price:.3f}{C.RESET} (${sl_amount:.2f}) "
-            f"| Signal: {signal} | Stake: {stake:.2f}"
             f"| Tolerance: ±{TP_SL_SLIPPAGE_TOLERANCE:.2f}"
         )
 
-        start_time = time.time()
-        max_monitor_time = CONTRACT_DURATION * 2
-        hedge_executed = False
-        self._price_history[contract_id] = []
-        self._tp_sl_triggered.discard(contract_id)
-
-        # Pre-calculate hedge details
         hedge_signal = "PUT" if signal == "CALL" else "CALL"
+
+        # Pre-calculate hedge stake
         current_balance = stats.get_current_balance()
-        _, _, _, _ = await tiered_stake.update_stake(current_balance)
+        _, _, _, _ = await tiered_stake.update_stake(current_balance, lock_tier=True)
         hedge_stake = tiered_stake.current_stake * HEDGE_STAKE_MULTIPLIER
         if hedge_stake < 0.10:
             hedge_stake = 0.10
 
+        start_time = time.time()
+        max_monitor_time = CONTRACT_DURATION * 2
+
+        # Track the last few prices for trend detection
+        price_history = []
+
         while time.time() - start_time < max_monitor_time:
-            if self._is_closing or contract_id not in stats.pending_trades:
+            if self._is_closing:
                 break
 
+            # Check if contract is still pending
+            if contract_id not in stats.pending_trades:
+                logger.debug(
+                    f"Contract {contract_id} no longer pending, stopping monitor."
+                )
+                break
+
+            # Check if TP/SL already triggered
             if contract_id in self._tp_sl_triggered:
                 break
 
-            current_price = await self.get_current_price()
+            # Get current price from tick queue or poll
+            current_price = None
+
+            # Try to get from queue first (real-time ticks)
+            try:
+                # Non-blocking get from queue
+                tick_data = await asyncio.wait_for(self._tick_queue.get(), timeout=0.05)
+                if tick_data:
+                    current_price = tick_data
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+            # If no tick in queue, poll for price
             if current_price is None:
-                await asyncio.sleep(TP_SL_MONITOR_INTERVAL)
+                try:
+                    client = await self.ensure_polling_client()
+                    if client:
+                        response = await client.send({"ticks": SYMBOL, "subscribe": 0})
+                        if "error" not in response:
+                            tick = response.get("tick", {})
+                            current_price = float(tick.get("quote", 0))
+                except Exception:
+                    pass
+
+            if current_price is None:
+                await asyncio.sleep(0.05)
                 continue
 
-            # Store price history for debugging
-            self._price_history[contract_id].append(current_price)
-            if len(self._price_history[contract_id]) > 10:
-                self._price_history[contract_id].pop(0)
+            # Store price history
+            price_history.append(current_price)
+            if len(price_history) > 5:
+                price_history.pop(0)
 
             tp_hit = False
             sl_hit = False
 
             # Check with tolerance
             if signal == "CALL":
-                if current_price >= tp_hit_price:
+                if current_price >= tp_trigger:
                     tp_hit = True
                     logger.info(
-                        f"{C.GREEN}🎯 TAKE PROFIT HIT!{C.RESET} Price: {current_price:.3f} >= {tp_hit_price:.3f} (Target: {take_profit_price:.3f})"
+                        f"{C.GREEN}🎯 TAKE PROFIT HIT!{C.RESET} Price: {current_price:.3f} >= {tp_trigger:.3f} (Target: {take_profit_price:.3f})"
                     )
-                elif current_price <= sl_hit_price:
+                elif current_price <= sl_trigger:
                     sl_hit = True
                     logger.info(
-                        f"{C.RED}🛑 STOP LOSS HIT!{C.RESET} Price: {current_price:.3f} <= {sl_hit_price:.3f} (Target: {stop_loss_price:.3f})"
+                        f"{C.RED}🛑 STOP LOSS HIT!{C.RESET} Price: {current_price:.3f} <= {sl_trigger:.3f} (Target: {stop_loss_price:.3f})"
                     )
             else:
-                if current_price <= tp_hit_price:
+                if current_price <= tp_trigger:
                     tp_hit = True
                     logger.info(
-                        f"{C.GREEN}🎯 TAKE PROFIT HIT!{C.RESET} Price: {current_price:.3f} <= {tp_hit_price:.3f} (Target: {take_profit_price:.3f})"
+                        f"{C.GREEN}🎯 TAKE PROFIT HIT!{C.RESET} Price: {current_price:.3f} <= {tp_trigger:.3f} (Target: {take_profit_price:.3f})"
                     )
-                elif current_price >= sl_hit_price:
+                elif current_price >= sl_trigger:
                     sl_hit = True
                     logger.info(
-                        f"{C.RED}🛑 STOP LOSS HIT!{C.RESET} Price: {current_price:.3f} >= {sl_hit_price:.3f} (Target: {stop_loss_price:.3f})"
+                        f"{C.RED}🛑 STOP LOSS HIT!{C.RESET} Price: {current_price:.3f} >= {sl_trigger:.3f} (Target: {stop_loss_price:.3f})"
                     )
 
-            # ===== FIX: Execute hedge IMMEDIATELY when TP/SL is hit =====
             if tp_hit or sl_hit:
                 self._tp_sl_triggered.add(contract_id)
                 logger.info(
                     f"{C.PURPLE}🛡️ EXECUTING HEDGE{C.RESET} | Original: {contract_id} "
-                    f"| Hedge: {hedge_signal} | Stake: {hedge_stake:.2f} | Reason: {'TP' if tp_hit else 'SL'}"
+                    f"| Hedge: {hedge_signal} | Stake: {hedge_stake:.2f}"
                 )
 
                 hedge_contract_id, hedge_entry = await self.execute_hedge_trade(
@@ -767,7 +808,6 @@ class PersistentTradeManager:
                 )
 
                 if hedge_contract_id:
-                    hedge_executed = True
                     self.active_contracts[hedge_contract_id] = {
                         "is_hedge": True,
                         "original_contract": contract_id,
@@ -790,14 +830,13 @@ class PersistentTradeManager:
                     )
                     break
 
-            await asyncio.sleep(TP_SL_MONITOR_INTERVAL)
+            await asyncio.sleep(0.05)  # 50ms check interval
+
+        # Unlock tier when monitoring ends
+        await tiered_stake.unlock_tier()
 
         # Clean up
-        if contract_id in self._price_history:
-            del self._price_history[contract_id]
-
-        if not hedge_executed and contract_id in stats.pending_trades:
-            logger.debug(f"Contract {contract_id} monitoring ended naturally.")
+        self._tp_sl_triggered.discard(contract_id)
 
     async def execute_trade_instant(self, signal, stake, symbol, currency):
         start_time = time.time()
@@ -938,7 +977,6 @@ class PersistentTradeManager:
         return False
 
     def print_trade_preview(self, signal, stake, entry_price, tp_amount, sl_amount):
-        """Print TP/SL targets before executing trade."""
         if signal == "CALL":
             tp = entry_price + tp_amount
             sl = entry_price - sl_amount
@@ -982,6 +1020,13 @@ class PersistentTradeManager:
         if self._is_closing:
             return
 
+        # Check max active contracts
+        if self._active_trade_count >= MAX_ACTIVE_CONTRACTS:
+            logger.warning(
+                f"{C.YELLOW}⚠️ Max active contracts ({MAX_ACTIVE_CONTRACTS}) reached.{C.RESET}"
+            )
+            return
+
         await self.check_daily_reset()
 
         if stats.is_daily_stopped:
@@ -998,7 +1043,7 @@ class PersistentTradeManager:
 
         current_balance = stats.get_current_balance()
         stake, tp_amount, sl_amount, block_reason = await tiered_stake.update_stake(
-            current_balance
+            current_balance, lock_tier=True
         )
 
         if not tiered_stake.is_trading_allowed():
@@ -1024,9 +1069,7 @@ class PersistentTradeManager:
             logger.critical(
                 f"{C.RED}{C.BOLD}═══════════════════════════════════════════════════════════{C.RESET}"
             )
-            logger.critical(
-                f"{C.RED}  🛑 BOT WILL NOW EXIT. Please deposit funds and restart.{C.RESET}"
-            )
+            logger.critical(f"{C.RED}  🛑 BOT WILL NOW EXIT.{C.RESET}")
             logger.critical(
                 f"{C.RED}{C.BOLD}═══════════════════════════════════════════════════════════{C.RESET}"
             )
@@ -1036,9 +1079,7 @@ class PersistentTradeManager:
             return
 
         if stake <= 0.0:
-            logger.critical(
-                f"{C.RED}🚨 Invalid stake: {stake:.2f}. Trading blocked.{C.RESET}"
-            )
+            logger.critical(f"{C.RED}🚨 Invalid stake: {stake:.2f}.{C.RESET}")
             self._bot_running = False
             asyncio.get_event_loop().stop()
             return
@@ -1046,13 +1087,13 @@ class PersistentTradeManager:
         current_time = time.time()
         if current_time - self.last_trade_time < self.cooldown_seconds:
             remaining = self.cooldown_seconds - (current_time - self.last_trade_time)
-            logger.info(
-                f"{C.GREY}⏳ Cooldown active ({remaining:.1f}s remaining){C.RESET}"
-            )
+            logger.info(f"{C.GREY}⏳ Cooldown ({remaining:.1f}s){C.RESET}")
+            await tiered_stake.unlock_tier()
             return
 
         async with self._trade_lock:
             self.last_trade_time = time.time()
+            self._active_trade_count += 1
             sig_color = C.GREEN if signal == "CALL" else C.RED
 
             logger.info(
@@ -1065,6 +1106,8 @@ class PersistentTradeManager:
             )
 
             if not contract_id:
+                self._active_trade_count -= 1
+                await tiered_stake.unlock_tier()
                 logger.error(f"{C.RED}❌ Failed to execute {signal} trade.{C.RESET}")
                 return
 
@@ -1088,22 +1131,28 @@ class PersistentTradeManager:
                 "start_time": time.time(),
             }
 
-            # Start TP/SL monitoring
-            asyncio.create_task(
-                self.monitor_tp_sl(
+            # Start TP/SL monitoring in background
+            monitor_task = asyncio.create_task(
+                self.monitor_tp_sl_tick(
                     contract_id, signal, entry_price, stake, tp_amount, sl_amount
                 )
             )
+            self._monitor_tasks.add(monitor_task)
+            monitor_task.add_done_callback(self._monitor_tasks.discard)
 
             # Resolve in background
-            asyncio.create_task(
+            resolve_task = asyncio.create_task(
                 self._resolve_trade(contract_id, signal, stake, entry_price)
             )
+            self._monitor_tasks.add(resolve_task)
+            resolve_task.add_done_callback(self._monitor_tasks.discard)
 
     async def _resolve_trade(self, contract_id, signal, stake, entry_price):
         profit, exit_price = await self.poll_contract_status(contract_id)
 
         stats.pending_trades.pop(contract_id, None)
+        self._active_trade_count -= 1
+        await tiered_stake.unlock_tier()
 
         is_hedge = False
         hedge_info = self.active_contracts.get(contract_id, {})
@@ -1131,9 +1180,7 @@ class PersistentTradeManager:
 
     async def trade_worker(self):
         self.heartbeat_task = asyncio.create_task(self.heartbeat())
-        logger.info(
-            f"{C.GREEN}💓 Heartbeat started (interval: {HEARTBEAT_INTERVAL}s){C.RESET}"
-        )
+        logger.info(f"{C.GREEN}💓 Heartbeat started.{C.RESET}")
 
         while not self._is_closing and self._bot_running:
             try:
@@ -1158,10 +1205,19 @@ class PersistentTradeManager:
             return
         if stats.consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
             return
+        if self._active_trade_count >= MAX_ACTIVE_CONTRACTS:
+            return
         self.pending_trades.put_nowait((signal, symbol, currency))
+
+    def add_tick(self, price):
+        """Add a tick to the queue for real-time monitoring."""
+        self._tick_queue.put_nowait(price)
 
     async def close(self):
         self._is_closing = True
+        # Cancel all monitor tasks
+        for task in self._monitor_tasks:
+            task.cancel()
         if self.heartbeat_task:
             self.heartbeat_task.cancel()
             try:
@@ -1199,14 +1255,13 @@ class TickStreakTracker:
 
         if abs(latency) > 10000 and not self.clock_drift_warning_triggered:
             logger.warning(
-                f"🚨 {C.YELLOW}SYSTEM CLOCK OUT OF SYNC{C.RESET}: Your local time differs from the "
-                f"server by {C.BOLD}{latency/1000:.1f}s{C.RESET}."
+                f"🚨 {C.YELLOW}SYSTEM CLOCK OUT OF SYNC{C.RESET}: {latency/1000:.1f}s difference."
             )
             self.clock_drift_warning_triggered = True
 
         if latency > self.max_latency:
             logger.warning(
-                f"{C.YELLOW}⚠️ Skipping tick ({C.ORANGE}High Latency: {latency}ms{C.RESET})"
+                f"{C.YELLOW}⚠️ Skipping tick (High Latency: {latency}ms){C.RESET}"
             )
             return "SKIP_LATENCY"
 
@@ -1249,7 +1304,7 @@ class TickStreakTracker:
             logger.info(
                 f"{dir_color}●{C.RESET} Price: {C.WHITE}{C.BOLD}{price:.3f}{C.RESET}  "
                 f"Streak: {dir_color}{self.streak:+d}{C.RESET} {direction_emoji} {streak_meter}  "
-                f"{C.GREY}│{C.RESET} {C.RED}🔴 TRADING STOPPED - INSUFFICIENT BALANCE{C.RESET}"
+                f"{C.GREY}│{C.RESET} {C.RED}🔴 TRADING STOPPED{C.RESET}"
             )
             return "HOLD"
 
@@ -1286,13 +1341,12 @@ def print_banner():
     banner = f"""
 {C.CYAN}{C.BOLD}╔══════════════════════════════════════════════════════════╗
 ║             🤖  DERIV TIERED-RISK BOT  🤖                  ║
-║        FIXED NUMERIC TP/SL HEDGING STRATEGY               ║
-║              ★ FULLY FIXED VERSION ★                      ║
+║        REAL-TIME TP/SL HEDGING - FULLY FIXED              ║
 ╚══════════════════════════════════════════════════════════╝{C.RESET}
 {C.GREY}  Symbol:{C.RESET} {C.WHITE}{SYMBOL}{C.RESET}   {C.GREY}Target Streak:{C.RESET} {C.WHITE}{TARGET_STREAK}{C.RESET}   {C.GREY}Duration:{C.RESET} {C.WHITE}{CONTRACT_DURATION} ticks{C.RESET}
   
-  {C.BOLD}{C.GREEN}📊 TIERED RISK MANAGEMENT (NO MARTINGALE){C.RESET}
-  {C.GREY}  Minimum Balance:{C.RESET} ${ABSOLUTE_MIN_BALANCE:.2f}  {C.GREY}|{C.RESET} Minimum Stake: ${ABSOLUTE_MIN_STAKE:.2f}
+  {C.BOLD}{C.GREEN}📊 TIERED RISK MANAGEMENT{C.RESET}
+  {C.GREY}  Minimum Balance:{C.RESET} ${ABSOLUTE_MIN_BALANCE:.2f}  {C.GREY}|{C.RESET} Max Active: {MAX_ACTIVE_CONTRACTS}
   
   {C.GREY}  Tier 1 (${TIER_1_MIN:.0f}-${TIER_1_MAX:.0f}):{C.RESET} Stake ${TIER_1_STAKE:.2f} | TP ${TIER_1_TP:.2f} | SL ${TIER_1_SL:.2f}
   {C.GREY}  Tier 2 (${TIER_2_MIN:.0f}-${TIER_2_MAX:.0f}):{C.RESET} Stake ${TIER_2_STAKE:.2f} | TP ${TIER_2_TP:.2f} | SL ${TIER_2_SL:.2f}
@@ -1300,17 +1354,15 @@ def print_banner():
   {C.GREY}  Tier 4 (${TIER_4_MIN:.0f}-${TIER_4_MAX:.0f}):{C.RESET} Stake ${TIER_4_STAKE:.2f} | TP ${TIER_4_TP:.2f} | SL ${TIER_4_SL:.2f}
   {C.GREY}  Tier 5 (${TIER_5_MIN:.0f}+):{C.RESET} {TIER_5_RISK_PERCENT}% stake | {TIER_5_TP_PERCENT}% TP | {TIER_5_SL_PERCENT}% SL
 
-  {C.BOLD}{C.YELLOW}🎯 TP/SL CONFIGURATION - FIXED:{C.RESET}
-  {C.GREY}  Take Profit:{C.RESET} Fixed numeric values per tier  {C.GREY}|{C.RESET} Stop Loss: Fixed numeric values per tier
-  {C.GREY}  Monitor Interval:{C.RESET} {TP_SL_MONITOR_INTERVAL}s  {C.GREY}|{C.RESET} Slippage Tolerance: ±{TP_SL_SLIPPAGE_TOLERANCE}
-  {C.GREY}  Hedge Stake:{C.RESET} {HEDGE_STAKE_MULTIPLIER}x original  {C.GREY}|{C.RESET} Immediate Hedge Execution
+  {C.BOLD}{C.YELLOW}🎯 TP/SL CONFIGURATION:{C.RESET}
+  {C.GREY}  Slippage Tolerance:{C.RESET} ±{TP_SL_SLIPPAGE_TOLERANCE}  {C.GREY}|{C.RESET} Monitor: Real-time ticks
+  {C.GREY}  Max Active Contracts:{C.RESET} {MAX_ACTIVE_CONTRACTS}  {C.GREY}|{C.RESET} Hedge Stake: {HEDGE_STAKE_MULTIPLIER}x
 
   {C.BOLD}{C.YELLOW}🛑 RISK LIMITS:{C.RESET}
   {C.GREY}  Daily Loss Limit:{C.RESET} {DAILY_LOSS_LIMIT_PERCENT}%  {C.GREY}|{C.RESET} Daily Profit Target: {DAILY_PROFIT_TARGET_PERCENT}%
   {C.GREY}  Max Consecutive Losses:{C.RESET} {MAX_CONSECUTIVE_LOSSES}
 
-  {C.GREEN}⚡ FEATURES: Fixed Numeric TP/SL | Hedging | Flat Staking | Slippage Tolerance{C.RESET}
-  {C.GREY}💓 Heartbeat: {HEARTBEAT_INTERVAL}s | Max Reconnect: {MAX_RECONNECT_ATTEMPTS}{C.RESET}
+  {C.GREEN}⚡ REAL-TIME TP/SL MONITORING | Locked Tiers | No Overlapping Trades{C.RESET}
 """
     print(banner)
 
@@ -1318,7 +1370,7 @@ def print_banner():
 # ==================== MAIN ====================
 async def main():
     if not API_TOKEN:
-        logger.error("Execution stopped: Missing Token in environment variables.")
+        logger.error("Missing Token.")
         return
 
     print_banner()
@@ -1338,17 +1390,9 @@ async def main():
             f"{C.RED}  Minimum Required: ${ABSOLUTE_MIN_BALANCE:.2f}{C.RESET}"
         )
         logger.critical(
-            f"{C.RED}  Shortfall: ${ABSOLUTE_MIN_BALANCE - initial_balance:.2f}{C.RESET}"
-        )
-        logger.critical(
             f"{C.RED}{C.BOLD}═══════════════════════════════════════════════════════════{C.RESET}"
         )
-        logger.critical(
-            f"{C.RED}  🛑 BOT CANNOT START. Please deposit funds and restart.{C.RESET}"
-        )
-        logger.critical(
-            f"{C.RED}{C.BOLD}═══════════════════════════════════════════════════════════{C.RESET}"
-        )
+        logger.critical(f"{C.RED}  🛑 BOT CANNOT START.{C.RESET}")
         logger.critical("")
         return
 
@@ -1359,20 +1403,15 @@ async def main():
         f"{C.GREY}💰 Starting Balance: {stats.initial_balance} {CURRENCY}{C.RESET}"
     )
     logger.info(
-        f"{C.GREEN}📊 Initial Stake: {tiered_stake.current_stake} {CURRENCY}{C.RESET}"
-    )
-    logger.info(
         f"{C.GREEN}📊 TP: ${tiered_stake.current_tp:.2f} | SL: ${tiered_stake.current_sl:.2f}{C.RESET}"
     )
-    logger.info(f"{C.GREEN}📊 Minimum Balance: ${ABSOLUTE_MIN_BALANCE:.2f}{C.RESET}")
-    logger.info(f"{C.CYAN}📊 Slippage Tolerance: ±{TP_SL_SLIPPAGE_TOLERANCE}{C.RESET}")
 
     trade_manager = PersistentTradeManager()
 
-    logger.info("🔌 Pre-connecting trading connections...")
+    logger.info("🔌 Pre-connecting...")
     await trade_manager.ensure_execution_client()
     await trade_manager.ensure_polling_client()
-    logger.info(f"{C.GREEN}✅ Trading connections ready.{C.RESET}")
+    logger.info(f"{C.GREEN}✅ Connections ready.{C.RESET}")
 
     worker_task = asyncio.create_task(trade_manager.trade_worker())
     logger.info("🚀 Trade worker started.")
@@ -1382,11 +1421,9 @@ async def main():
 
     try:
         await tick_client.connect()
-        logger.info(
-            f"{C.GREEN}✅ Streaming connection successfully established.{C.RESET}"
-        )
+        logger.info(f"{C.GREEN}✅ Streaming connected.{C.RESET}")
 
-        logger.info(f"Subscribing to tick stream for {C.CYAN}{SYMBOL}{C.RESET}...")
+        logger.info(f"Subscribing to {C.CYAN}{SYMBOL}{C.RESET}...")
         await tick_client.ws.send(json.dumps({"ticks": SYMBOL, "subscribe": 1}))
 
         tracker = TickStreakTracker(
@@ -1395,14 +1432,11 @@ async def main():
         last_signal_time = 0
 
         logger.info(
-            f"{C.CYAN}👁️ Now analyzing market... Awaiting {C.BOLD}{TARGET_STREAK}{C.RESET} tick streak on {C.CYAN}{SYMBOL}{C.RESET}."
+            f"{C.CYAN}👁️ Awaiting {C.BOLD}{TARGET_STREAK}{C.RESET} tick streak on {C.CYAN}{SYMBOL}{C.RESET}."
         )
 
         async for message_str in tick_client.ws:
             if not trade_manager._bot_running:
-                logger.warning(
-                    f"{C.YELLOW}🛑 Bot stopping due to trading block...{C.RESET}"
-                )
                 break
 
             message = json.loads(message_str)
@@ -1411,6 +1445,9 @@ async def main():
                 tick_data = message.get("tick", {})
                 price = float(tick_data.get("quote"))
                 epoch = float(tick_data.get("epoch"))
+
+                # Pass tick to trade manager for real-time TP/SL monitoring
+                trade_manager.add_tick(price)
 
                 signal = tracker.process_new_tick(price, epoch)
 
@@ -1421,24 +1458,19 @@ async def main():
                 if signal in ["CALL", "PUT"]:
                     sig_color = C.GREEN if signal == "CALL" else C.RED
                     logger.info(
-                        f"{C.YELLOW}🔥 Strike Streak Confirmed!{C.RESET} Triggering {sig_color}{C.BOLD}{signal}{C.RESET} order at price {C.WHITE}{price:.3f}{C.RESET}"
+                        f"{C.YELLOW}🔥 Strike Streak!{C.RESET} {sig_color}{C.BOLD}{signal}{C.RESET} at {C.WHITE}{price:.3f}{C.RESET}"
                     )
 
                     trade_manager.queue_trade(signal, SYMBOL, CURRENCY)
                     last_signal_time = current_time
                     tracker.streak = 0
 
-            elif "error" in message:
-                logger.error(
-                    f"{C.RED}❌ WebSocket incoming error: {message['error'].get('message')}{C.RESET}"
-                )
-
     except asyncio.CancelledError:
-        logger.info("Bot execution cancelled. Shutting down gracefully...")
+        logger.info("Bot cancelled.")
     except Exception as e:
         logger.error(f"{C.RED}❌ Critical failure: {e}{C.RESET}", exc_info=True)
     finally:
-        logger.info("Tearing down active connections...")
+        logger.info("Shutting down...")
         logger.info(stats.detailed_summary())
 
         worker_task.cancel()
@@ -1451,14 +1483,12 @@ async def main():
             await tick_client.close()
 
         await trade_manager.close()
-        logger.info(
-            f"{C.GREY}🛑 Bot stopped at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{C.RESET}"
-        )
+        logger.info(f"{C.GREY}🛑 Bot stopped.{C.RESET}")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot manually terminated. Goodbye!")
+        logger.info("Goodbye!")
         logger.info(stats.detailed_summary())
