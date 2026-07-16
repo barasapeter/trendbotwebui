@@ -938,10 +938,12 @@ async def main():
         logger.error(f"{C.RED}❌ Invalid or zero balance returned — aborting.{C.RESET}")
         return
 
+    INITIAL_STAKE_PERCENTAGE = 5
+
     # ---- NEW: set stake to 1% of balance ----
     BASE_STAKE = round(
-        initial_balance * 0.01, 2
-    )  # Base stake set to 1% of the balance, and fall back to absolute minimum of 0.35 USD if less
+        initial_balance * INITIAL_STAKE_PERCENTAGE / 100, 2
+    )  # Base stake set to 5% of the balance, and fall back to absolute minimum of 0.35 USD if less
     if BASE_STAKE < 0.35:
         minimum_clamp_warning = f"Calculated base stake from balance of {initial_balance} USD is {BASE_STAKE} USD. Resetting to absolute minimum... Please consider recharging your balance."
         logger.warning(minimum_clamp_warning)
@@ -950,7 +952,7 @@ async def main():
     martingale.base_stake = BASE_STAKE
     martingale.current_stake = BASE_STAKE
     logger.info(
-        f"{C.CYAN}📐 Base stake set to 1% of balance: {C.BOLD}{BASE_STAKE} {CURRENCY}{C.RESET}"
+        f"{C.CYAN}📐 Base stake set to {INITIAL_STAKE_PERCENTAGE}% of balance: {C.BOLD}{BASE_STAKE} {CURRENCY}{C.RESET}"
     )
     # -------------------------------------------
 
