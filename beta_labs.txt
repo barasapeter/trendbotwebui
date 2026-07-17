@@ -1,0 +1,7 @@
+2. Large Move Reversals (Stronger with more data)
+Condition	Next Batch	Count	Accuracy
+Move > +0.50	Next is DOWN	12/15	80% ✅
+Move < -0.50	Next is UP	8/13	62%
+Move > +0.30	Next is DOWN	28/42	67%
+Move < -0.30	Next is UP	31/52	60%
+This is interesting — after a large up move, the next batch is DOWN 80% of the time. That's a real pattern.
