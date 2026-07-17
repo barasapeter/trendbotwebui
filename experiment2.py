@@ -77,7 +77,7 @@ APP_ID = os.getenv("APP_ID") or "1089"
 # ==================== CONFIGURATION ====================
 SYMBOL = "R_100"
 BASE_STAKE = None  # RECOMMENDED: Should be 1% of your balance, I want when the balance is fetched this base stake is changed to 1% of balance
-INITIAL_STAKE_PERCENTAGE = 1
+INITIAL_STAKE_PERCENTAGE = 0.5
 CURRENCY = "USD"
 TARGET_STREAK = 4
 CONTRACT_DURATION = 5
