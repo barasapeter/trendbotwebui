@@ -28,6 +28,25 @@ SYMBOL = "R_100"  # Default symbol - change as needed
 BATCH_SIZE = 5  # number of numbered ticks per batch (excludes the assumed entry)
 
 
+class Tee:
+    """
+    Duplicates everything written to it across multiple streams
+    (e.g. the real console + a log file), so console output and
+    file output stay identical without touching any print() calls.
+    """
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+            s.flush()
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+
 class TickPrinter:
     def __init__(self, symbol=SYMBOL, batch_size=BATCH_SIZE):
         self.client = DerivClient(WS_URL)
@@ -38,8 +57,8 @@ class TickPrinter:
 
         # Batch state
         self.batch_number = 0
-        self.batch_entry = None  # (price, timestamp) - the assumed entry tick
-        self.batch_ticks = []  # list of (price, timestamp) for ticks 1..batch_size
+        self.batch_entry = None   # (price, timestamp) - the assumed entry tick
+        self.batch_ticks = []     # list of (price, timestamp) for ticks 1..batch_size
 
     async def subscribe_ticks(self):
         """Subscribe to ticks for the specified symbol"""
@@ -62,9 +81,7 @@ class TickPrinter:
 
     def _print_entry(self, price, epoch, chained=False):
         ts = self._fmt_time(epoch)
-        label = (
-            "Entry (carried over from previous exit)" if chained else "Assumed entry"
-        )
+        label = "Entry (carried over from previous exit)" if chained else "Assumed entry"
         print()
         print("=" * 60)
         print(f"Batch #{self.batch_number + 1}  |  {label}")
@@ -127,11 +144,9 @@ class TickPrinter:
         exact same subscription, right where history left off.
         """
         total_needed = n_batches * self.batch_size + 1
-        print(
-            f"📜 Requesting {total_needed} historical ticks "
-            f"({n_batches} batch{'es' if n_batches != 1 else ''}) "
-            f"+ live subscription in one call..."
-        )
+        print(f"📜 Requesting {total_needed} historical ticks "
+              f"({n_batches} batch{'es' if n_batches != 1 else ''}) "
+              f"+ live subscription in one call...")
 
         payload = {
             "ticks_history": self.symbol,
@@ -168,12 +183,10 @@ class TickPrinter:
             self.tick_count += 1
             self.process_tick(price, epoch)
 
-        print(
-            "\n📡 History replayed — live stream continuing on the SAME "
-            "subscription (no reconnect, no gap)...\n"
-        )
+        print("\n📡 History replayed — live stream continuing on the SAME "
+              "subscription (no reconnect, no gap)...\n")
         sys.stdout.flush()  # guarantee everything above is on screen now,
-        # before we start waiting on live ticks
+                             # before we start waiting on live ticks
 
     async def fetch_and_replay_history(self, n_batches):
         """
@@ -186,10 +199,8 @@ class TickPrinter:
         off the previous exit, same as in live mode).
         """
         total_needed = n_batches * self.batch_size + 1
-        print(
-            f"📜 Fetching {total_needed} historical ticks "
-            f"({n_batches} batch{'es' if n_batches != 1 else ''})..."
-        )
+        print(f"📜 Fetching {total_needed} historical ticks "
+              f"({n_batches} batch{'es' if n_batches != 1 else ''})...")
 
         payload = {
             "ticks_history": self.symbol,
@@ -300,8 +311,30 @@ async def main():
     if len(sys.argv) > 2:
         batch_size = int(sys.argv[2])
 
-    printer = TickPrinter(symbol, batch_size)
-    await printer.run()
+    # Output file: python live_ticks.py [symbol] [batch_size] [output_file|auto|none]
+    output_arg = sys.argv[3] if len(sys.argv) > 3 else "auto"
+    output_file = None
+    if output_arg.lower() != "none":
+        if output_arg.lower() == "auto":
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = f"ticks_log_{symbol}_{ts}.txt"
+        else:
+            output_file = output_arg
+
+    original_stdout = sys.stdout
+    file_handle = None
+    if output_file:
+        file_handle = open(output_file, "a", encoding="utf-8")
+        sys.stdout = Tee(original_stdout, file_handle)
+        print(f"📝 Logging output to {output_file}")
+
+    try:
+        printer = TickPrinter(symbol, batch_size)
+        await printer.run()
+    finally:
+        sys.stdout = original_stdout
+        if file_handle:
+            file_handle.close()
 
 
 if __name__ == "__main__":
