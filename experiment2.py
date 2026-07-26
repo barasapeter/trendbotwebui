@@ -84,7 +84,7 @@ CONTRACT_DURATION = 5
 COOLDOWN_SECONDS = 6
 MAX_LATENCY_MS = 1000
 
-MARTINGALE_ENABLED = True
+MARTINGALE_ENABLED = False
 MARTINGALE_MULTIPLIER = 2
 MAX_MARTINGALE_STEPS = 7
 
@@ -356,7 +356,7 @@ class PersistentTradeManager:
 
     async def _create_client(self, label="client"):
         try:
-            ws_url = get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
+            ws_url = get_ws_url(account_type="real", token=API_TOKEN, app_id=APP_ID)
             client = DerivClient(ws_url)
             await client.connect()
             return client
@@ -934,7 +934,7 @@ async def main():
     logger.info(f"{C.CYAN}💰 Fetching live account balance...{C.RESET}")
     try:
         balance_client = DerivClient(
-            ws_url=get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
+            ws_url=get_ws_url(account_type="real", token=API_TOKEN, app_id=APP_ID)
         )
         await balance_client.connect()
         initial_balance = await get_account_balance(balance_client)
@@ -980,7 +980,7 @@ async def main():
     worker_task = asyncio.create_task(trade_manager.trade_worker())
     logger.info("🚀 Trade worker started.")
 
-    ws_url_ticks = get_ws_url(account_type="demo", token=API_TOKEN, app_id=APP_ID)
+    ws_url_ticks = get_ws_url(account_type="real", token=API_TOKEN, app_id=APP_ID)
     tick_client = DerivClient(ws_url_ticks)
 
     try:
@@ -1021,8 +1021,12 @@ async def main():
                     logger.info(
                         f"{C.YELLOW}🔥 Strike Streak Confirmed!{C.RESET} Triggering {sig_color}{C.BOLD}{signal}{C.RESET} order at price {C.WHITE}{price:.3f}{C.RESET}"
                     )
-
-                    trade_manager.queue_trade(signal, SYMBOL, CURRENCY)
+                    if len(stats.pending_trades) == 0:
+                        trade_manager.queue_trade(signal, SYMBOL, CURRENCY)
+                    else:
+                        logger.info(
+                            f"{C.CYAN} [Current threads: {len(stats.pending_trades)}] NO SUBSEQUENT EXECUTIONS ALLOWED!{C.RESET} No triggering {sig_color}{C.BOLD}{signal}{C.RESET} order at price {C.WHITE}{price:.3f}{C.RESET}"
+                        )
                     last_signal_time = current_time
                     tracker.streak = 0
 
